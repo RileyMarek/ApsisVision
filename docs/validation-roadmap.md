@@ -4,6 +4,12 @@ The first intended evaluator is a spacecraft GNC engineer. Priorities are reliab
 accurate relative navigation under difficult space imaging conditions, followed by
 recorded/live camera integration and AMD Xilinx Zynq UltraScale+ MPSoC deployment.
 
+**2026-10-18 update:** [Measured readiness](readiness.md) is the current gate report.
+128 randomized trials fail integrity/availability/uncertainty limits; the first
+cold-start official-image baseline recovers 0/160 held-out poses. A separate HCW
+rendezvous reference and bounded replay adapter now exist. Real-image correspondence
+and estimator consistency remain the next investment.
+
 ## What the demo establishes
 
 The desktop pipeline detects grayscale geometric corners from a shaded, depth-tested
@@ -39,7 +45,8 @@ over expanding accuracy or robustness claims.
 
 Numerical accuracy limits, maximum coasting time, acquisition range, tolerated
 lighting envelope, and acceptable deadline-miss rate must come from the intended
-mission. They are not yet specified. Current CI error limits are regression guards,
+mission. A [candidate screening proposal](../scenarios/envelope.json) now exists, but fails
+validation and needs mission-owner acceptance. Current CI error limits are regression guards,
 not flight acceptance criteria.
 
 ## Hardware boundary
@@ -52,11 +59,11 @@ AArch64, and bare-metal Armv7E-M. This establishes library build portability, no
 board compatibility, executable linking, measured performance, or flight readiness.
 The Cortex-M target is an independent portability check, not a Zynq target.
 
-No official camera dataset has been evaluated yet. A grayscale image detector,
-SPEED-style import adapter, and rectified-PNG benchmark harness now exist. The next
-gate is independent calibration/convention verification and evaluation on a public
-subset. Semantic correspondence and global acquisition remain substantial work;
-the current local Harris/geometry pipeline is not a trained real-satellite detector.
+An official SPEED+/SHIRT subset has been evaluated with a separate cold-start ORB
+appearance baseline, using training supervision and held-out scoring. It fails to
+acquire all 160 held-out poses. The [benchmark guide](benchmarking.md) records selection,
+calibration, terms and reproduction. Semantic correspondence and global acquisition
+remain substantial work; the local Harris pipeline is not a trained satellite detector.
 
 Start with [Stanford SLAB's SPEED+ and SHIRT datasets](https://slab.stanford.edu/projects/datasets):
 SPEED+ provides synthetic and hardware-in-the-loop spacecraft images for evaluating
@@ -80,6 +87,8 @@ AMD distinguishes its defense and space portfolios and publishes device-specific
 radiation information: [aerospace and defense](https://www.amd.com/en/solutions/aerospace-and-defense.html),
 [space products and radiation resources](https://www.amd.com/en/solutions/aerospace-and-defense/space.html).
 
-Guidance and actuation stay outside the current scope. A future integration must
-define how the consuming GNC system responds when the navigation solution is stale,
-uncertain, inconsistent, or unavailable.
+The expanded scope now includes reference guidance: `apsis-mission` exercises approach,
+alignment, hold, abort and virtual capture using local relative dynamics. Pose-sensor
+reference results remain separate from pixel-based results. Active attitude matching
+with a tumbling port, coupled contact/latch mechanics, actuation and flight-safety
+qualification remain open. A reference abort policy is not proof of a safe retreat corridor.
