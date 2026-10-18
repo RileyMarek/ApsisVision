@@ -14,6 +14,7 @@ use std::{
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Config {
+    save_images: bool,
     frames: usize,
     seed: u64,
     noise: f64,
@@ -28,6 +29,7 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            save_images: true,
             frames: 1000,
             seed: 42,
             noise: 1.0,
@@ -210,7 +212,9 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                 &mut noise,
             );
             last_scene = format!("frames/{frame:06}.png");
-            png_file(&out.join(&last_scene), camera, &image.rgb)?;
+            if config.save_images {
+                png_file(&out.join(&last_scene), camera, &image.rgb)?;
+            }
             features.clear();
             matched.clear();
             fit_rms = None;
@@ -396,13 +400,15 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
     };
     let json = serde_json::to_string(&recording)?;
     fs::write(out.join("data.json"), &json)?;
-    fs::write(
-        out.join("index.html"),
-        include_str!("viewer.html")
-            .replace("__STYLE__", include_str!("viewer.css"))
-            .replace("__SCRIPT__", include_str!("viewer.js"))
-            .replace("__RECORDING__", &json),
-    )?;
+    if recording.config.save_images {
+        fs::write(
+            out.join("index.html"),
+            include_str!("viewer.html")
+                .replace("__STYLE__", include_str!("viewer.css"))
+                .replace("__SCRIPT__", include_str!("viewer.js"))
+                .replace("__RECORDING__", &json),
+        )?;
+    }
     let mut csv=String::from("time_s,capture_s,state,valid,measurement_age_s,rejection,accepted,camera_available,x_m,y_m,z_m,vx_m_s,vy_m_s,vz_m_s,wx_rad_s,wy_rad_s,wz_rad_s,position_error_m,attitude_error_deg,vision_us,filter_us,sigma_px_m,sigma_py_m,sigma_pz_m,sigma_vx_m_s,sigma_vy_m_s,sigma_vz_m_s,sigma_theta_x_rad,sigma_theta_y_rad,sigma_theta_z_rad,sigma_wx_rad_s,sigma_wy_rad_s,sigma_wz_rad_s,qw,qx,qy,qz\n");
     for f in &recording.frames {
         let mut row = vec![
@@ -435,8 +441,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut out = PathBuf::from("output");
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
+        if arg == "--no-images" {
+            config.save_images = false;
+            continue;
+        }
         if arg == "--help" {
-            println!("apsis-cli [--out output] [--frames 1000] [--seed 42] [--noise 1] [--occlusion 0] [--false-detections 0] [--calibration-bias 0] [--delay-ms 0] [--glare 0.8] [--blackout-start 8] [--blackout-duration 3]");
+            println!("apsis-cli [--out output] [--no-images] [--frames 1000] [--seed 42] [--noise 1] [--occlusion 0] [--false-detections 0] [--calibration-bias 0] [--delay-ms 0] [--glare 0.8] [--blackout-start 8] [--blackout-duration 3]");
             return Ok(());
         }
         let value = args.next().ok_or("missing argument value")?;
@@ -457,7 +467,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let r = run(config, out.clone())?;
     println!("{}", serde_json::to_string_pretty(&r.summary)?);
-    println!("Open {}", out.join("index.html").display());
+    println!(
+        "Wrote {}",
+        out.join(if r.config.save_images {
+            "index.html"
+        } else {
+            "data.json"
+        })
+        .display()
+    );
     Ok(())
 }
 #[cfg(test)]
@@ -516,15 +534,20 @@ mod tests {
         let path = std::env::temp_dir().join(format!("apsis-delay-{}", std::process::id()));
         let r = run(
             Config {
+                save_images: false,
                 frames: 100,
                 delay_ms: 300.0,
                 ..Config::default()
             },
-            path,
+            path.clone(),
         )
         .unwrap();
         assert_eq!(r.summary.accepted, 0);
         assert!(r.frames.iter().all(|f| f.p.is_none() && !f.valid));
         assert!(r.frames.iter().any(|f| f.reason == "stale_measurement"));
+        assert!(path.join("data.json").is_file());
+        assert!(path.join("telemetry.csv").is_file());
+        assert!(!path.join("index.html").exists());
+        assert_eq!(fs::read_dir(path.join("frames")).unwrap().count(), 0);
     }
 }
