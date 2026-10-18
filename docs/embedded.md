@@ -74,6 +74,15 @@ the stream with a nonzero exit. A consuming process must treat stream terminatio
 as unavailable/invalid; it must never keep the last valid output indefinitely.
 Reinitialization after transport corruption is the supervisor's responsibility.
 
+Packets optionally include `covariance_6`, a row-major 6x6 covariance array ordered
+`[x_m, y_m, z_m, attitude_x_rad, attitude_y_rad, attitude_z_rad]`. It must be finite,
+symmetric and positive definite. The adapter preserves its cross terms and passes
+it to `observe_with_covariance`; malformed covariance stops replay. Older packets
+without this field use the documented fixed-R convenience default. Pixel consumers
+now supply projection-derived covariance plus the demo discrepancy floor; see the
+[adaptive uncertainty evidence](adaptive-perception.md). Learned-model packets are
+quarantined with null poses until perception/integrity qualification.
+
 `--paced` schedules delivery against a monotonic host clock and includes scheduling
 lateness in measurement age. Without it, recorded delivery times advance virtually.
 Reports separate scheduler lateness from propagation/filter compute time and count

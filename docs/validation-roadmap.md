@@ -1,5 +1,8 @@
 # Integration and validation roadmap
 
+Latest evidence: [adaptive covariance and learned perception](adaptive-perception.md).
+Both the independent integrity campaign and learned landmark audit still fail.
+
 The first intended evaluator is a spacecraft GNC engineer. Priorities are reliable,
 accurate relative navigation under difficult space imaging conditions, followed by
 recorded/live camera integration and AMD Xilinx Zynq UltraScale+ MPSoC deployment.

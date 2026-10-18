@@ -1,5 +1,9 @@
 # Integration gates: measured status
 
+This is the baseline experiment at `f1cfa92`. The latest
+[adaptive covariance and learned-model follow-up](adaptive-perception.md) records
+paired/independent trials, failed learned hypotheses and INT8 export limitations.
+
 Measured 2026-10-18. **The research tools are usable; the proposed operating envelope
 is not validated. A trustworthy real-image rendezvous demo is not ready.**
 

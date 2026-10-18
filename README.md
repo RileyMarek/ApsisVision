@@ -9,9 +9,10 @@ The desktop demo makes tracking—and its failures—visible.
 Research prototype. A separate software-in-loop guidance reference is available;
 hardware actuation and flight qualification remain outside the evidence.
 
-**Current gate: not mission-ready.** A 128-trial campaign fails the proposed integrity
-and availability limits. A first cold-start image baseline recovers 0/160 held-out
-SPEED+/SHIRT poses. See [measured readiness and next steps](docs/readiness.md).
+**Current gate: not mission-ready.** Adaptive pose covariance improves paired tests
+but still fails an independent 128-trial integrity campaign. ORB and the first learned
+landmark model do not provide dependable poses. See the
+[latest measured results](docs/adaptive-perception.md) and [baseline readiness](docs/readiness.md).
 
 ## Run the demo
 
@@ -65,7 +66,7 @@ See the [scenario evidence](docs/scenarios.md) for results and limits.
 ## Pipeline
 
 ```text
-Shaded camera raster → Harris corners → association → PnP → boundary verification
+Shaded camera raster → Harris corners → association → PnP + covariance → boundary verification
                     → multiplicative error-state EKF → health + telemetry
 ```
 
@@ -105,6 +106,9 @@ The [benchmark guide](docs/benchmarking.md) covers SPEED+/SHIRT import and evalu
 The [embedded guide](docs/embedded.md) covers the consumer example, storage sizes,
 stack evidence, replay faults, and timing scope. The [readiness report](docs/readiness.md)
 records failed real-image acquisition and overconfident covariance as open blockers.
+The [adaptive covariance and learned-model follow-up](docs/adaptive-perception.md)
+includes independent trials, FP32/INT8 export evidence, and failed hypotheses.
+Learned pose candidates are quarantined from navigation.
 
 ## Exercise the integration gates
 

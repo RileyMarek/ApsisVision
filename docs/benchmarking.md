@@ -125,3 +125,11 @@ The downloaded dataset licenses are CC BY-NC-SA 4.0. Consult the official
 [SHIRT](https://purl.stanford.edu/zq716br5462) records before reuse, especially commercial
 work. Geometry is from [SPNv2](https://github.com/tpark94/spnv2/tree/main/core/utils/models).
 Data and trained artifacts are not redistributed with this repository.
+
+## Learned landmark follow-up
+
+A separate optional compact heatmap trainer now supports full-image semantic
+landmark inference, FP32 ONNX export and static INT8 characterization. Its first
+400-train / 100-development experiment fails the held-out pose audit; all learned
+replay poses are null. Raw scored hypotheses are diagnostics, not GNC measurements.
+See [measured results and reproduction](adaptive-perception.md).
