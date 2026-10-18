@@ -1,0 +1,11 @@
+{
+  "name": "apsis-viewer-tools",
+  "private": true,
+  "scripts": {
+    "check": "node --check crates/apsis-cli/src/viewer.js && prettier --check \"crates/apsis-cli/src/viewer.{html,css,js}\"",
+    "format": "prettier --write \"crates/apsis-cli/src/viewer.{html,css,js}\""
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}

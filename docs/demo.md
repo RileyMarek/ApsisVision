@@ -11,10 +11,19 @@ Linux binary through WSL distribution `Ubuntu-24.04`.
 Each scenario creates a separate `output/runs/<id>/` recording. The server serializes
 scenario runs, executes the binary without a shell, and rejects non-local hosts and
 foreign origins. Close the server when finished. Run directories are retained for
-comparison; they are ignored by Git. No GPU, npm packages, or hosted service is used.
+comparison; they are ignored by Git. Playback requires no GPU, external assets, or
+hosted service. Node/Prettier is used only for development formatting checks.
 
 `output/index.html` also supports offline playback. Keep its `frames/` directory
 alongside it. Interactive scenario controls require the local server.
+
+The desktop console uses the viewport; narrow screens stack the panels. The health
+strip shows the entire recording, with dim segments for GNC-invalid estimates.
+Arrow buttons pause and seek to the next or previous recorded camera, health, or
+validity change. The transport slider remains available for arbitrary timestamps.
+Expand the 12-D uncertainty row to inspect every marginal standard deviation;
+short screens scroll when that detail is open. Failure presets change the sliders;
+press **Run scenario** to recompute. **Baseline** also restores the 8–11 s outage.
 
 The simulation pane deliberately shows truth during outages. The camera pane
 shows no optical data while unavailable; its dashed wireframe is the EKF prediction.

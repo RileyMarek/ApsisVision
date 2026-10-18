@@ -116,6 +116,7 @@ struct Summary {
 }
 #[derive(Serialize)]
 struct Recording {
+    scenarios: serde_json::Value,
     config: Config,
     summary: Summary,
     frames: Vec<Tick>,
@@ -388,6 +389,7 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
         navigator_bytes: std::mem::size_of::<Navigator>(),
     };
     let recording = Recording {
+        scenarios: serde_json::from_str(include_str!("../../../scenarios/demo.json"))?,
         config,
         summary,
         frames,
@@ -396,7 +398,10 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
     fs::write(out.join("data.json"), &json)?;
     fs::write(
         out.join("index.html"),
-        include_str!("viewer.html").replace("__RECORDING__", &json),
+        include_str!("viewer.html")
+            .replace("__STYLE__", include_str!("viewer.css"))
+            .replace("__SCRIPT__", include_str!("viewer.js"))
+            .replace("__RECORDING__", &json),
     )?;
     let mut csv=String::from("time_s,capture_s,state,valid,measurement_age_s,rejection,accepted,camera_available,x_m,y_m,z_m,vx_m_s,vy_m_s,vz_m_s,wx_rad_s,wy_rad_s,wz_rad_s,position_error_m,attitude_error_deg,vision_us,filter_us,sigma_px_m,sigma_py_m,sigma_pz_m,sigma_vx_m_s,sigma_vy_m_s,sigma_vz_m_s,sigma_theta_x_rad,sigma_theta_y_rad,sigma_theta_z_rad,sigma_wx_rad_s,sigma_wy_rad_s,sigma_wz_rad_s,qw,qx,qy,qz\n");
     for f in &recording.frames {
