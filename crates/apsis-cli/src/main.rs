@@ -14,6 +14,11 @@ use std::{
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Config {
+    range_m: f64,
+    tumble_scale: f64,
+    phase_rad: f64,
+    light_gain: f64,
+    sun_angle_rad: f64,
     save_images: bool,
     frames: usize,
     seed: u64,
@@ -29,6 +34,11 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            range_m: 1.6,
+            tumble_scale: 1.0,
+            phase_rad: 0.0,
+            light_gain: 1.0,
+            sun_angle_rad: 0.0,
             save_images: true,
             frames: 1000,
             seed: 42,
@@ -46,6 +56,21 @@ impl Default for Config {
 impl Config {
     fn validate(&self) -> Result<(), Box<dyn Error>> {
         for (name, value, lo, hi) in [
+            ("range", self.range_m, 0.5, 20.0),
+            ("tumble scale", self.tumble_scale, 0.0, 5.0),
+            (
+                "initial phase",
+                self.phase_rad,
+                -core::f64::consts::PI,
+                core::f64::consts::PI,
+            ),
+            ("light gain", self.light_gain, 0.05, 5.0),
+            (
+                "sun angle",
+                self.sun_angle_rad,
+                -core::f64::consts::PI,
+                core::f64::consts::PI,
+            ),
             ("noise", self.noise, 0.0, 25.0),
             ("occlusion", self.occlusion, 0.0, 0.9),
             ("calibration bias", self.calibration_bias, -0.15, 0.15),
@@ -88,6 +113,7 @@ struct Tick {
     truth_q: [f64; 4],
     error: Option<f64>,
     angle: Option<f64>,
+    nees_12: Option<f64>,
     fit_rms: Option<f64>,
     vision_us: u128,
     filter_us: u128,
@@ -188,7 +214,14 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
     let mut filter_times = Vec::new();
     for frame in 0..config.frames {
         let t = frame as f64 * 0.02;
-        let truth = apsis_sim::truth(t);
+        let mut truth = apsis_sim::truth(t * config.tumble_scale);
+        // Independent scenario truth. The estimator's fixed prior is unchanged.
+        truth.position = V3::new(
+            0.012 * (t * 0.2).sin(),
+            0.008 * (t * 0.3).sin(),
+            config.range_m - t * 0.0005,
+        );
+        truth.attitude = Q::from_scaled_axis(V3::new(0.0, 0.0, config.phase_rad)) * truth.attitude;
         let filter_start = Instant::now();
         nav.predict_to(t)
             .map_err(|r| format!("predict failed: {}", r.label()))?;
@@ -204,6 +237,8 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                 &truth,
                 t,
                 Conditions {
+                    light_gain: config.light_gain,
+                    sun_angle_rad: config.sun_angle_rad,
                     noise: config.noise,
                     occlusion: config.occlusion,
                     false_blobs: config.false_detections,
@@ -327,6 +362,7 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
             truth_q: quat(truth.attitude),
             error: None,
             angle: None,
+            nees_12: None,
             fit_rms,
             vision_us,
             filter_us,
@@ -345,6 +381,29 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
             tick.sigma = Some(std::array::from_fn(|i| f.covariance[(i, i)].sqrt()));
             tick.error = Some(error);
             tick.angle = Some(angle);
+            // Consistency scoring is downstream of estimation, never an update input.
+            let mut state_error = apsis_core::math::SVector::<f64, 12>::zeros();
+            state_error
+                .fixed_rows_mut::<3>(0)
+                .copy_from(&(f.pose.position - truth.position));
+            let truth_velocity =
+                V3::new(0.0024 * (t * 0.2).cos(), 0.0024 * (t * 0.3).cos(), -0.0005);
+            state_error
+                .fixed_rows_mut::<3>(3)
+                .copy_from(&(f.velocity - truth_velocity));
+            state_error
+                .fixed_rows_mut::<3>(6)
+                .copy_from(&(f.pose.attitude * truth.attitude.inverse()).scaled_axis());
+            let truth_rate = Q::from_scaled_axis(V3::new(0.0, 0.0, config.phase_rad))
+                * V3::new(0.035, 0.05, 0.14)
+                * config.tumble_scale;
+            state_error
+                .fixed_rows_mut::<3>(9)
+                .copy_from(&(f.rate - truth_rate));
+            tick.nees_12 = f
+                .covariance
+                .cholesky()
+                .map(|c| state_error.dot(&c.solve(&state_error)));
             tick.wire = target()
                 .iter()
                 .filter_map(|p| calibrated.project(f.pose.transform(*p)))
@@ -457,7 +516,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         }
         if arg == "--help" {
-            println!("apsis-cli [--out output] [--no-images] [--frames 1000] [--seed 42] [--noise 1] [--occlusion 0] [--false-detections 0] [--calibration-bias 0] [--delay-ms 0] [--glare 0.8] [--blackout-start 8] [--blackout-duration 3]");
+            println!("apsis-cli [--out output] [--no-images] [--frames 1000] [--seed 42] [--noise 1] [--occlusion 0] [--false-detections 0] [--calibration-bias 0] [--delay-ms 0] [--glare 0.8] [--blackout-start 8] [--blackout-duration 3] [--range-m 1.6] [--tumble-scale 1] [--phase-rad 0] [--light-gain 1] [--sun-angle-rad 0]");
             return Ok(());
         }
         let value = args.next().ok_or("missing argument value")?;
@@ -465,6 +524,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             "--out" => out = PathBuf::from(value),
             "--frames" => config.frames = value.parse()?,
             "--seed" => config.seed = value.parse()?,
+            "--range-m" => config.range_m = value.parse()?,
+            "--tumble-scale" => config.tumble_scale = value.parse()?,
+            "--phase-rad" => config.phase_rad = value.parse()?,
+            "--light-gain" => config.light_gain = value.parse()?,
+            "--sun-angle-rad" => config.sun_angle_rad = value.parse()?,
             "--noise" => config.noise = value.parse()?,
             "--occlusion" => config.occlusion = value.parse()?,
             "--false-detections" => config.false_detections = value.parse()?,

@@ -1,0 +1,28 @@
+{
+  "status": "candidate screening envelope; not validated or mission-qualified",
+  "population": "Known 3U box and asymmetric docking plate; 640x480 calibrated pinhole camera, fx=fy=1500 px; fixed approximate initial pose",
+  "range_m": [1.4, 3.0],
+  "angular_speed_rad_s": [0.0, 0.25],
+  "initial_roll_phase_rad": [-0.15, 0.15],
+  "noise_adu": [0.0, 5.0],
+  "occlusion_fraction": [0.0, 0.15],
+  "false_features": [0, 4],
+  "focal_bias_fraction": [-0.005, 0.005],
+  "light_gain": [0.5, 1.5],
+  "sun_angle_rad": [-0.5, 0.5],
+  "glare": [0.0, 1.5],
+  "delivery_delay_ms": [0.0, 20.0],
+  "camera_hz": 10,
+  "navigation_hz": 50,
+  "outage_s": 3,
+  "validity_expires_s": 0.5,
+  "screening_limits": {
+    "position_error_m": 0.15,
+    "attitude_error_deg": 8,
+    "valid_fraction_min": 0.7,
+    "false_valid_trial_wilson95_upper_max": 0.05,
+    "position_marginal_3sigma_coverage_min": 0.95,
+    "vision_deadline_ms": 100,
+    "filter_deadline_ms": 20
+  }
+}

@@ -9,6 +9,8 @@ pub struct Image {
 }
 #[derive(Clone, Copy)]
 pub struct Conditions {
+    pub light_gain: f64,
+    pub sun_angle_rad: f64,
     pub noise: f64,
     pub occlusion: f64,
     pub false_blobs: usize,
@@ -17,6 +19,8 @@ pub struct Conditions {
 impl Default for Conditions {
     fn default() -> Self {
         Self {
+            light_gain: 1.0,
+            sun_angle_rad: 0.0,
             noise: 1.0,
             occlusion: 0.0,
             false_blobs: 0,
@@ -51,7 +55,8 @@ pub fn render(
         [0, 1, 3, 2],
         [4, 6, 7, 5],
     ];
-    let sun = V3::new(-0.6, -0.4, -0.8).normalize();
+    let sun = apsis_math::Q::from_scaled_axis(V3::new(0.0, conditions.sun_angle_rad, 0.0))
+        * V3::new(-0.6, -0.4, -0.8).normalize();
     for face in faces {
         let pts = face.map(|i| pose.transform(body[i]));
         let normal = (pts[2] - pts[0]).cross(&(pts[1] - pts[0])).normalize();
@@ -135,7 +140,8 @@ pub fn render(
             0.0
         };
         for c in 0..3 {
-            rgb[i * 3 + c] = (rgb[i * 3 + c] as f64 + perturb + flare_here).clamp(0.0, 255.0) as u8;
+            rgb[i * 3 + c] = (rgb[i * 3 + c] as f64 * conditions.light_gain + perturb + flare_here)
+                .clamp(0.0, 255.0) as u8;
             // Simplified camera black level, keeping baseline dark frames compact.
             if rgb[i * 3 + c] < 3 {
                 rgb[i * 3 + c] = 0;
