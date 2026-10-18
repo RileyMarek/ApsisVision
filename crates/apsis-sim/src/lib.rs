@@ -1,14 +1,17 @@
-//! Synthetic point emitters, intentionally without surface occlusion or lighting.
+//! Desktop synthetic camera and prescribed local motion. The shaded demo is in `scene`;
+//! `render` retains a coded-point fixture for independent pose-solver regression tests.
+pub mod scene;
 use apsis_math::{target, Camera, Pose, Q, V3};
 
 pub fn truth(time: f64) -> Pose {
     Pose {
         position: V3::new(
-            0.25 * (time * 0.2).sin(),
-            0.15 * (time * 0.3).cos(),
-            12.0 - time * 0.025,
+            0.012 * (time * 0.2).sin(),
+            0.008 * (time * 0.3).sin(),
+            1.6 - time * 0.0005,
         ),
-        attitude: Q::from_scaled_axis(V3::new(0.018, 0.025, 0.035) * time),
+        attitude: Q::from_scaled_axis(V3::new(0.035, 0.05, 0.14) * time)
+            * Q::from_scaled_axis(V3::new(0.25, 0.35, 0.1)),
     }
 }
 
