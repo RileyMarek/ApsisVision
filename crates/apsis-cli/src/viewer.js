@@ -136,6 +136,11 @@ function draw() {
   byId("valid").style.color = f.valid ? "#79efc0" : "#ffc578";
   byId("position").textContent = f.p ? f.p.map((v) => fmt(v, 4)).join(" / ") : "Awaiting pose";
   byId("rate").textContent = f.w ? f.w.map((v) => fmt(v, 4)).join(" / ") : "—";
+  const measurementAge = f.age;
+  byId("ageReadout").textContent = fmt(measurementAge, 2);
+  byId("ageArc").style.strokeDasharray =
+    (measurementAge == null ? 0 : Math.min(100, (measurementAge / 0.5) * 100)) + " 100";
+  byId("ageArc").style.stroke = f.valid ? "#8fd9cb" : "#ffad73";
   byId("age").textContent = f.age == null ? "No accepted measurement" : fmt(f.age, 2) + " s";
   byId("reason").textContent = f.reason.replaceAll("_", " ");
   byId("range").textContent = fmt(Math.hypot(...f.truth_p), 2) + " m";
@@ -147,7 +152,7 @@ function draw() {
   byId("measurement").textContent = f.used ? "ACCEPTED" : f.available ? "PREDICT" : "NO FRAME";
   byId("poseLabel").textContent = f.available && f.used ? "OPTICAL UPDATE" : "PREDICTED POSE";
   byId("pipelineLabel").textContent =
-    "HARRIS → MATCH → PnP · " + (f.captured == null ? "—" : fmt(f.captured, 1) + " s capture");
+    "HARRIS → PnP → EDGE GATE · " + (f.captured == null ? "—" : fmt(f.captured, 1) + " s capture");
   byId("clock").textContent = fmt(f.t, 2) + " s";
   scrub.value = index;
   byId("covariance").replaceChildren(
@@ -175,9 +180,33 @@ byId("toggle").onclick = () => {
   byId("toggle").textContent = playing ? "Pause" : "Play";
 };
 scrub.oninput = () => {
+  playing = false;
+  accumulator = 0;
+  byId("toggle").textContent = "Play";
   index = Number(scrub.value);
   draw();
 };
+byId("framing").onclick = () => {
+  const full = document.querySelector(".app-shell").classList.toggle("full-frame");
+  byId("framing").setAttribute("aria-pressed", String(full));
+  byId("framing").textContent = full ? "Center crop ↗" : "Full frame ↗";
+  byId("framingLabel").textContent =
+    "REFERENCE VIEW · " + (full ? "FULL SENSOR FRAME" : "CENTER CROP");
+};
+byId("openLab").onclick = () => byId("lab").showModal();
+byId("closeLab").onclick = () => byId("lab").close();
+byId("lab").addEventListener("click", (event) => {
+  if (event.target === byId("lab")) {
+    const r = byId("lab").getBoundingClientRect();
+    if (
+      event.clientY < r.top ||
+      event.clientY > r.bottom ||
+      event.clientX < r.left ||
+      event.clientX > r.right
+    )
+      byId("lab").close();
+  }
+});
 const fields = ["noise", "occlusion", "false_detections", "calibration_bias", "delay_ms", "glare"];
 function controlLabel(key) {
   const v = Number(byId(key).value);

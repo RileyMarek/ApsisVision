@@ -36,9 +36,11 @@ Noise, occlusion, false image features, calibration bias, delivery delay, and gl
 controls rerun the Rust pipeline. The viewer replays the resulting recording;
 it does not invent estimator output in JavaScript.
 
-Choose a failure preset, inspect the health timeline, or step between recorded
-acquisition, outage, and validity changes. Expand the covariance row for all 12
-error-state uncertainties. The console fills the desktop viewport and stacks on mobile.
+Open **Scenario lab** for failure presets, run evidence, and exports. Inspect the
+health timeline or step between recorded acquisition, outage, and validity changes.
+Expand the covariance row for all 12 error-state uncertainties. The three open views
+fill the desktop workspace; controls stay in a drawer.
+Orbital curves, warm light, and an age gauge give the console its instrument style.
 
 ## Repeatable failure tests
 

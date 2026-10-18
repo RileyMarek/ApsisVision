@@ -17,13 +17,20 @@ hosted service. Node/Prettier is used only for development formatting checks.
 `output/index.html` also supports offline playback. Keep its `frames/` directory
 alongside it. Interactive scenario controls require the local server.
 
-The desktop console uses the viewport; narrow screens stack the panels. The health
-strip shows the entire recording, with dim segments for GNC-invalid estimates.
-Arrow buttons pause and seek to the next or previous recorded camera, health, or
-validity change. The transport slider remains available for arbitrary timestamps.
-Expand the 12-D uncertainty row to inspect every marginal standard deviation;
-short screens scroll when that detail is open. Failure presets change the sliders;
-press **Run scenario** to recompute. **Baseline** also restores the 8–11 s outage.
+The three open views occupy the desktop workspace. **Scenario lab** opens a modal
+bottom drawer with failure controls, run evidence, and CSV/JSON exports; Escape
+closes it and restores focus. Narrow screens stack the views. The orbital curves
+and glow are viewer decoration; they never enter camera pixels or navigation.
+Camera panes show a centered crop to use the available height, with aligned
+vision overlays. **Full frame** switches both panes to the complete sensor view.
+Exported PNGs always retain the complete 640×480 frame.
+
+The health strip covers the recording, with dim segments for GNC-invalid estimates.
+Arrow buttons pause and seek to recorded camera, health, or validity changes.
+Seeking with the transport slider also pauses. Expand the 12-D uncertainty row to
+inspect every marginal; short screens scroll when that detail is open.
+Failure presets change the sliders; **Run scenario** recomputes the pipeline.
+**Baseline** also restores the 8–11 s outage.
 
 The simulation pane deliberately shows truth during outages. The camera pane
 shows no optical data while unavailable; its dashed wireframe is the EKF prediction.

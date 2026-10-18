@@ -10,6 +10,25 @@
   </head>
   <body>
     <div class="app-shell">
+      <svg
+        class="orbital-backdrop"
+        viewBox="0 0 1600 1000"
+        preserveAspectRatio="xMidYMid slice"
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id="orbitLight" x1="0" y1="1" x2="1" y2="0">
+            <stop stop-color="#56c5c5" />
+            <stop offset=".55" stop-color="#ede8dd" />
+            <stop offset="1" stop-color="#ff8a46" />
+          </linearGradient>
+        </defs>
+        <ellipse cx="570" cy="550" rx="700" ry="340" transform="rotate(-36 570 550)" />
+        <ellipse cx="600" cy="530" rx="730" ry="360" transform="rotate(-36 600 530)" />
+        <path d="M30 90h18m-9-9v18M1550 90h18m-9-9v18M30 910h18m-9-9v18M1550 910h18m-9-9v18" />
+        <circle cx="1130" cy="170" r="5" />
+        <circle cx="95" cy="750" r="3" />
+      </svg>
       <header>
         <a class="identity" href="#" aria-label="Apsis Vision navigation lab"
           ><svg class="emblem" viewBox="0 0 56 56" aria-hidden="true">
@@ -28,15 +47,25 @@
         </div>
         <div class="header-meta">
           <span class="tag">SYNTHETIC / RESEARCH</span
-          ><span class="sub">RUST CORE · 10 Hz VISION / 50 Hz EKF</span>
+          ><span class="sub">10 Hz OPTICAL / 50 Hz NAVIGATION</span>
         </div>
       </header>
       <main>
         <div class="layout">
-          <section class="panel camera-panel">
+          <section class="panel camera-panel scene-panel">
             <div class="panelhead">
-              <h2><span class="number">01</span>Scene camera</h2>
-              <span class="sub">3U / BODY FRAME</span>
+              <h2>
+                <span class="number">01</span
+                ><span>Scene camera<small>PHOTONS / REFERENCE</small></span>
+              </h2>
+              <button
+                id="framing"
+                class="framing"
+                aria-pressed="false"
+                title="Toggle both cameras between centered crop and the complete sensor frame"
+              >
+                Full frame ↗
+              </button>
             </div>
             <div class="view">
               <canvas
@@ -45,7 +74,7 @@
                 height="480"
                 aria-label="Rendered tumbling 3U CubeSat with directional lighting"
               ></canvas>
-              <div class="viewlabel">REFERENCE VIEW · 10 Hz</div>
+              <div class="viewlabel" id="framingLabel">REFERENCE VIEW · CENTER CROP</div>
               <div class="viewfooter">
                 <span>0.10 × 0.30 × 0.10 m</span><span>DIRECTIONAL SUN + SPECULAR</span>
               </div>
@@ -60,9 +89,12 @@
               the estimator.
             </p>
           </section>
-          <section class="panel camera-panel">
+          <section class="panel camera-panel optical-panel">
             <div class="panelhead">
-              <h2><span class="number">02</span>Optical solution</h2>
+              <h2>
+                <span class="number">02</span
+                ><span>Optical solution<small>GEOMETRY / CORRESPONDENCE</small></span>
+              </h2>
               <span class="sub">PIXELS → POSE</span>
             </div>
             <div class="view">
@@ -72,7 +104,7 @@
                 height="480"
                 aria-label="Detected geometric corners, docking plate and estimated 3D wireframe"
               ></canvas>
-              <div class="viewlabel" id="pipelineLabel">HARRIS → ASSOCIATION → PnP</div>
+              <div class="viewlabel" id="pipelineLabel">HARRIS → PnP → BOUNDARY CHECK</div>
               <div class="blinding" id="blind">
                 <strong>CAMERA UNAVAILABLE</strong
                 ><small>EKF propagating · no optical update</small>
@@ -93,13 +125,25 @@
           </section>
           <section class="panel telemetry">
             <div class="panelhead">
-              <h2><span class="number">03</span>Navigation telemetry</h2>
+              <h2>
+                <span class="number">03</span
+                ><span>Navigation<small>STATE / INTEGRITY</small></span>
+              </h2>
               <span class="sub">EKF · 50 Hz</span>
             </div>
             <div>
               <div class="health">
                 <strong id="health">ACQUIRING</strong
                 ><span class="pill" id="valid">GNC INVALID</span>
+              </div>
+              <div class="age-instrument">
+                <svg viewBox="0 0 120 64" aria-hidden="true">
+                  <path class="gauge-track" d="M12 58a48 48 0 0 1 96 0" />
+                  <path id="ageArc" pathLength="100" d="M12 58a48 48 0 0 1 96 0" />
+                  <path d="M12 60v-7M108 60v-7M60 9v7" class="gauge-ticks" />
+                </svg>
+                <div><b id="ageReadout">—</b><small>MEASUREMENT AGE / s</small></div>
+                <span class="gauge-end">0.5 s VALIDITY LIMIT</span>
               </div>
               <div class="vectors">
                 <div><small>POSITION / m</small><code id="position">—</code></div>
@@ -109,7 +153,9 @@
               </div>
             </div>
             <div class="plot">
-              <label>Position change from first estimate / m <span class="xyz">X Y Z</span></label
+              <label
+                >Position change from first estimate / m
+                <span class="xyz"><i>X</i> <i>Y</i> <i>Z</i></span></label
               ><canvas
                 id="positionChart"
                 width="420"
@@ -118,7 +164,9 @@
               ></canvas>
             </div>
             <div class="plot">
-              <label>Angular velocity / rad s⁻¹ <span class="xyz">X Y Z</span></label
+              <label
+                >Angular velocity / rad s⁻¹
+                <span class="xyz"><i>X</i> <i>Y</i> <i>Z</i></span></label
               ><canvas
                 id="rateChart"
                 width="420"
@@ -127,7 +175,9 @@
               ></canvas>
             </div>
             <div class="plot">
-              <label>Position uncertainty / 3σ m <span class="xyz">X Y Z</span></label
+              <label
+                >Position uncertainty / 3σ m
+                <span class="xyz"><i>X</i> <i>Y</i> <i>Z</i></span></label
               ><canvas
                 id="covChart"
                 width="420"
@@ -153,7 +203,9 @@
               value="0"
               step="1"
             /><button id="cut" class="danger">Cut camera · 3 s</button
-            ><span class="sub replay-label">RUST REPLAY</span>
+            ><button id="openLab" class="lab-button" aria-haspopup="dialog">
+              Scenario lab <span>↗</span>
+            </button>
           </div>
           <div class="timeline-row">
             <span class="sub">NAV HEALTH</span
@@ -175,6 +227,15 @@
             ><span class="sub" id="validCoverage"></span>
           </div>
         </section>
+      </main>
+      <dialog id="lab" aria-labelledby="labTitle">
+        <div class="drawer-head">
+          <div>
+            <span class="eyebrow">EXPERIMENT / EVIDENCE</span>
+            <h2 id="labTitle">Scenario lab</h2>
+          </div>
+          <button id="closeLab" aria-label="Close scenario lab">Close ×</button>
+        </div>
         <div class="lower">
           <section class="panel">
             <div class="panelhead">
@@ -253,7 +314,7 @@
             </div>
           </section>
         </div>
-      </main>
+      </dialog>
       <footer>
         RESEARCH PROTOTYPE
         <span
