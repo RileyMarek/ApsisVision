@@ -55,7 +55,8 @@ fn run(frames:usize, seed:u64, out:PathBuf) -> Result<Summary,Box<dyn Error>> {
             if i>0 {playback.push(',');}
             write!(playback,"[{:.3},{:.3}]",point.x,point.y)?;
         }
-        write!(playback,"],\"center\":[{:.3},{:.3}],\"depth\":{:.6}}}",camera.project(p).unwrap().x,camera.project(p).unwrap().y,p.z)?;
+        let center=camera.project(p).ok_or("estimated center left camera")?;
+        write!(playback,"],\"center\":[{:.3},{:.3}],\"depth\":{:.6}}}",center.x,center.y,p.z)?;
     }
     playback.push(']');
     fs::write(out.join("telemetry.csv"),csv)?;
@@ -93,5 +94,25 @@ mod tests {
             assert!(s.attitude_rms<3.0,"seed {seed}: attitude RMS {}",s.attitude_rms);
             assert!(s.accepted>540,"accepted {}",s.accepted);
         }
+    }
+    #[test]
+    fn full_scenario_exports_finite_states_and_recovers() {
+        let path=std::env::temp_dir().join(format!("apsis-full-{}",std::process::id()));
+        let s=run(3000,42,path.clone()).unwrap();
+        assert!(s.rms<0.15,"position RMS {}",s.rms);
+        assert!(s.attitude_rms<3.0,"attitude RMS {}",s.attitude_rms);
+        let csv=fs::read_to_string(path.join("telemetry.csv")).unwrap();
+        let rows:Vec<_>=csv.lines().skip(1).collect();
+        assert_eq!(rows.len(),3000);
+        for row in &rows {
+            let values:Vec<_>=row.split(',').collect();
+            assert_eq!(values.len(),25);
+            for (i,value) in values.iter().enumerate() {
+                if i!=13 {assert!(value.parse::<f64>().unwrap().is_finite());}
+            }
+        }
+        assert_eq!(rows[210].split(',').nth(13),Some("false"));
+        assert_eq!(rows[240].split(',').nth(13),Some("true"));
+        assert!(!fs::read_to_string(path.join("index.html")).unwrap().contains("__FRAMES__"));
     }
 }

@@ -9,12 +9,12 @@
 <script>
 const frames=__FRAMES__;
 const scene=document.getElementById('scene'),ctx=scene.getContext('2d'),chart=document.getElementById('chart'),plot=chart.getContext('2d'),scrub=document.getElementById('scrub');
-scrub.max=frames.length-1;let index=0,playing=true,last=0;
+scrub.max=frames.length-1;let index=0,playing=true,last=null,accumulator=0;
 function wire(points,color){ctx.strokeStyle=color;ctx.lineWidth=1.5;for(let a=0;a<8;a++)for(let bit=0;bit<3;bit++){let b=a^(1<<bit);if(a<b){ctx.beginPath();ctx.moveTo(...points[a]);ctx.lineTo(...points[b]);ctx.stroke();}}}
 function draw(){const f=frames[index];ctx.clearRect(0,0,640,480);ctx.strokeStyle='#163341';ctx.lineWidth=1;for(let x=0;x<640;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,480);ctx.stroke();}for(let y=0;y<480;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(640,y);ctx.stroke();}
 wire(f.truth,'#79efc2');wire(f.estimate,'#58aaff');ctx.fillStyle='#ffffff';for(const p of f.detected){ctx.fillRect(p[0]-2,p[1]-2,4,4);}ctx.strokeStyle='#f9be65';ctx.beginPath();ctx.ellipse(...f.center,Math.max(1,1500*f.sigma[0]/f.depth),Math.max(1,1500*f.sigma[1]/f.depth),0,0,2*Math.PI);ctx.stroke();
 document.getElementById('time').textContent=f.t.toFixed(2)+' s';document.getElementById('position').textContent=(f.error*100).toFixed(2)+' cm';document.getElementById('attitude').textContent=f.angle.toFixed(2)+'°';document.getElementById('status').textContent=f.used?'Pose measurement accepted':'Predicting · no accepted measurement';scrub.value=index;
 plot.clearRect(0,0,300,130);plot.strokeStyle='#79efc2';plot.beginPath();const max=Math.max(.05,...frames.map(x=>x.error));for(let i=0;i<=index;i++){let x=i/(frames.length-1||1)*300,y=120-frames[i].error/max*110;i?plot.lineTo(x,y):plot.moveTo(x,y);}plot.stroke();plot.fillStyle='#9cb3c3';plot.font='12px system-ui';plot.fillText('Position error · '+(max*100).toFixed(1)+' cm scale',8,12);}
 document.getElementById('toggle').onclick=()=>{playing=!playing;document.getElementById('toggle').textContent=playing?'Pause':'Play';};scrub.oninput=()=>{index=Number(scrub.value);draw();};
-function tick(now){if(playing&&now-last>=20){index=(index+1)%frames.length;last=now;draw();}requestAnimationFrame(tick);}draw();requestAnimationFrame(tick);
+function tick(now){if(last!==null&&playing)accumulator+=Math.min(now-last,1000);last=now;if(accumulator>=20){const steps=Math.floor(accumulator/20);index=(index+steps)%frames.length;accumulator-=steps*20;draw();}requestAnimationFrame(tick);}draw();requestAnimationFrame(tick);
 </script></html>

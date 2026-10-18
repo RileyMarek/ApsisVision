@@ -5,7 +5,7 @@ pub fn detect(image: &[u8], camera: Camera) -> Vec<(usize, Vector2<f64>)> {
     if image.len() != camera.width * camera.height { return Vec::new(); }
     let mut sums = [(0.0, 0.0, 0); 8];
     for (index, &value) in image.iter().enumerate() {
-        if value >= 32 && (value - 32) % 24 == 0 {
+        if value >= 32 && (value - 32).is_multiple_of(24) {
             let id = ((value - 32) / 24) as usize;
             if id < 8 {
                 sums[id].0 += (index % camera.width) as f64;
@@ -20,6 +20,11 @@ pub fn detect(image: &[u8], camera: Camera) -> Vec<(usize, Vector2<f64>)> {
 
 pub fn solve(camera: Camera, points: &[(usize, Vector2<f64>)], seed: &Pose) -> Option<(Pose, f64)> {
     if points.len() < 6 || points.iter().any(|(id,p)| *id >= 8 || !p.iter().all(|v| v.is_finite())) { return None; }
+    let mut seen = [false; 8];
+    for (id, _) in points {
+        if seen[*id] { return None; }
+        seen[*id] = true;
+    }
     let model = target();
     let mut pose = seed.clone();
     for _ in 0..30 {
@@ -66,5 +71,6 @@ mod tests {
         assert!(rms<1.0);
         assert!(solve(c,&points[..4],&seed).is_none());
         assert!(detect(&[],c).is_empty());
+        assert!(solve(c,&[points[0];6],&seed).is_none());
     }
 }
