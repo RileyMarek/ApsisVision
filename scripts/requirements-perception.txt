@@ -1,0 +1,4 @@
+-r requirements-benchmark.txt
+opencv-python-headless>=4.10,<6
+scipy>=1.11,<2
+truststore>=0.10,<1

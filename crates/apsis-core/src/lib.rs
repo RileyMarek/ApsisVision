@@ -4,8 +4,9 @@
 //! This library does not supply board startup, device drivers, a panic handler,
 //! mission fault handling, or a real-time scheduling guarantee.
 #![no_std]
+pub mod guidance;
 
-pub use apsis_ekf::Filter;
+pub use apsis_ekf::{default_measurement_covariance, Filter, PoseCovariance};
 pub use apsis_math as math;
 pub use apsis_vision as vision;
 

@@ -63,6 +63,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "apsis-mission"
+version = "0.1.0"
+dependencies = [
+ "apsis-core",
+ "apsis-sim",
+ "serde_json",
+]
+
+[[package]]
+name = "apsis-replay"
+version = "0.1.0"
+dependencies = [
+ "apsis-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "apsis-sim"
 version = "0.1.0"
 dependencies = [

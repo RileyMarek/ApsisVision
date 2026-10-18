@@ -5,8 +5,8 @@ robust local PnP, and navigation API on rectified PNGs. Ground truth is accessed
 after each prediction is fixed. A regression changes truth labels and verifies
 identical predicted poses with different scores.
 
-**No SPEED+ or SHIRT accuracy result is claimed.** The importer and harness have
-fixture tests; the official datasets have not been downloaded or evaluated here.
+**Official subset evaluated; acquisition fails.** The separate cold-start ORB baseline
+recovers 0/160 held-out poses. See the experiment below and [readiness](readiness.md).
 Harris corners do not supply semantic Tango landmark identities or global pose
 acquisition. This is a measurable starting point, not a trained spacecraft detector.
 
@@ -82,5 +82,54 @@ RMS/worst errors, vision p95, and per-frame results. Scores over available estim
 must always be read with availability/loss counts. No official SPEED competition
 score, HIL calibration threshold, or ranking is implemented.
 
-Next: evaluate a labeled subset, inspect failed associations, establish a semantic
-landmark front end/global initialization, and keep tuning/evaluation sequences separate.
+## Cold-start official-image experiment
+
+The Python ORB experiment is separate from `apsis-bench`'s warm-start Rust pipeline.
+It tests global appearance association and seedless PnP, rather than initializing
+from a test pose. Its OpenCV/SciPy dependencies stay on the desktop.
+
+```sh
+python -m pip install -r scripts/requirements-perception.txt
+python scripts/fetch_benchmark.py --dataset speedplus --members speedplusv2/camera.json speedplusv2/LICENSE.md speedplusv2/synthetic/train.json speedplusv2/synthetic/validation.json speedplusv2/lightbox/test.json speedplusv2/sunlamp/test.json
+python scripts/fetch_benchmark.py --dataset shirt --members camera.json LICENSE.md METADATA.md roe1/metadata.json roe1/roe1.json roe2/metadata.json roe2/roe2.json
+python scripts/benchmark_subset.py
+python scripts/image_perception.py
+```
+
+The official archives are large; the downloader retrieves selected members with
+verified byte ranges, size/CRC checks, a 512 MiB per-archive-access transfer budget,
+and normal TLS verification using the system trust store. It refuses whole-archive
+fallbacks. Images, metadata, SHA-256 provenance, selection and appearance weights
+remain in ignored `output/datasets` / `output/real-images`. Cached image sizes/CRCs
+are rechecked against the archive index. No dataset download occurs in CI.
+
+Selection seed 1729 registers descriptors on 500 synthetic training images, then
+evaluates 40 independent images from each SPEED+ evaluation domain and the first
+20 lightbox frames of each SHIRT sequence. Held-out image hashes are checked against
+training. Do not use these test annotations for model selection. The 2026-10-18
+baseline rejects all 160 held-out fits; accuracy statistics are null. See
+[the committed summary](evidence/real-images-2026-10-18.json).
+
+The active body-to-camera quaternion convention preserves the SPEED scalar-first
+components, consistent with the reference projection described above. OpenCV
+undistortion uses official intrinsics/distortion before resize. Unit tests verify
+seedless known-correspondence recovery with outliers and blank-image rejection.
+
+Each group exports timestamped pose-or-null JSONL packets for `apsis-replay`.
+SHIRT spacing follows the archive's documented 5 s camera step; SPEED+ has artificial
+index-only 0.1 s spacing and **must not be used as a physical tracking sequence**.
+Missing detections remain null and cannot initialize the navigator from truth.
+
+The downloaded dataset licenses are CC BY-NC-SA 4.0. Consult the official
+[SPEED+](https://purl.stanford.edu/wv398fc4383) and
+[SHIRT](https://purl.stanford.edu/zq716br5462) records before reuse, especially commercial
+work. Geometry is from [SPNv2](https://github.com/tpark94/spnv2/tree/main/core/utils/models).
+Data and trained artifacts are not redistributed with this repository.
+
+## Learned landmark follow-up
+
+A separate optional compact heatmap trainer now supports full-image semantic
+landmark inference, FP32 ONNX export and static INT8 characterization. Its first
+400-train / 100-development experiment fails the held-out pose audit; all learned
+replay poses are null. Raw scored hypotheses are diagnostics, not GNC measurements.
+See [measured results and reproduction](adaptive-perception.md).

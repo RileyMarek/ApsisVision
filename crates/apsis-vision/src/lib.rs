@@ -3,6 +3,7 @@
 #![no_std]
 pub mod corners;
 pub mod silhouette;
+pub mod uncertainty;
 use apsis_math::{target, Camera, Pose, SMatrix, SVector, Vector2, V3};
 
 /// Bounded marker observations; no allocator or operating system is required.
@@ -192,6 +193,20 @@ pub fn solve_robust(
         }
     }
     solve_model(camera, model, &inliers[..count], &pose)
+}
+
+/// Robust fit plus local pixel-conditioned uncertainty. The caller must still
+/// verify landmark identity, calibration and silhouette/independent image support.
+pub fn solve_uncertain(
+    camera: Camera,
+    model: &[V3],
+    points: &[(usize, Vector2<f64>)],
+    seed: &Pose,
+    pixel_sigma_floor: f64,
+) -> Option<(Pose, f64, uncertainty::PoseUncertainty)> {
+    let (pose, rms) = solve_robust(camera, model, points, seed)?;
+    let uncertainty = uncertainty::estimate(camera, model, points, &pose, pixel_sigma_floor)?;
+    Some((pose, rms, uncertainty))
 }
 
 #[cfg(test)]

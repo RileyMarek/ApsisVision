@@ -1,6 +1,6 @@
 use apsis_core::math::{landmarks, target, Camera, Pose, Q, V3};
 use apsis_core::navigation::{Navigator, Rejection};
-use apsis_core::vision::{corners, solve_robust};
+use apsis_core::vision::{corners, solve_uncertain};
 use apsis_sim::scene::{self, Conditions};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,6 +14,11 @@ use std::{
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Config {
+    range_m: f64,
+    tumble_scale: f64,
+    phase_rad: f64,
+    light_gain: f64,
+    sun_angle_rad: f64,
     save_images: bool,
     frames: usize,
     seed: u64,
@@ -29,6 +34,11 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            range_m: 1.6,
+            tumble_scale: 1.0,
+            phase_rad: 0.0,
+            light_gain: 1.0,
+            sun_angle_rad: 0.0,
             save_images: true,
             frames: 1000,
             seed: 42,
@@ -46,6 +56,21 @@ impl Default for Config {
 impl Config {
     fn validate(&self) -> Result<(), Box<dyn Error>> {
         for (name, value, lo, hi) in [
+            ("range", self.range_m, 0.5, 20.0),
+            ("tumble scale", self.tumble_scale, 0.0, 5.0),
+            (
+                "initial phase",
+                self.phase_rad,
+                -core::f64::consts::PI,
+                core::f64::consts::PI,
+            ),
+            ("light gain", self.light_gain, 0.05, 5.0),
+            (
+                "sun angle",
+                self.sun_angle_rad,
+                -core::f64::consts::PI,
+                core::f64::consts::PI,
+            ),
             ("noise", self.noise, 0.0, 25.0),
             ("occlusion", self.occlusion, 0.0, 0.9),
             ("calibration bias", self.calibration_bias, -0.15, 0.15),
@@ -88,6 +113,10 @@ struct Tick {
     truth_q: [f64; 4],
     error: Option<f64>,
     angle: Option<f64>,
+    nees_12: Option<f64>,
+    last_nis_6: Option<f64>,
+    measurement_sigma: Option<[f64; 6]>,
+    geometry_condition: Option<f64>,
     fit_rms: Option<f64>,
     vision_us: u128,
     filter_us: u128,
@@ -126,6 +155,7 @@ struct Recording {
 struct Packet {
     captured: f64,
     release: f64,
+    covariance: apsis_core::PoseCovariance,
     pose: Option<Pose>,
     reason: Rejection,
 }
@@ -176,6 +206,8 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
     let mut features = Vec::new();
     let mut matched = Vec::new();
     let mut fit_rms = None;
+    let mut measurement_sigma = None;
+    let mut geometry_condition = None;
     let (mut sum, mut angles, mut scored, mut accepted, mut valid_count, mut camera_frames) =
         (0.0, 0.0, 0, 0, 0, 0);
     let (mut worst, mut worst_angle, mut blackout_worst, mut blackout_angle) =
@@ -188,7 +220,14 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
     let mut filter_times = Vec::new();
     for frame in 0..config.frames {
         let t = frame as f64 * 0.02;
-        let truth = apsis_sim::truth(t);
+        let mut truth = apsis_sim::truth(t * config.tumble_scale);
+        // Independent scenario truth. The estimator's fixed prior is unchanged.
+        truth.position = V3::new(
+            0.012 * (t * 0.2).sin(),
+            0.008 * (t * 0.3).sin(),
+            config.range_m - t * 0.0005,
+        );
+        truth.attitude = Q::from_scaled_axis(V3::new(0.0, 0.0, config.phase_rad)) * truth.attitude;
         let filter_start = Instant::now();
         nav.predict_to(t)
             .map_err(|r| format!("predict failed: {}", r.label()))?;
@@ -204,6 +243,8 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                 &truth,
                 t,
                 Conditions {
+                    light_gain: config.light_gain,
+                    sun_angle_rad: config.sun_angle_rad,
                     noise: config.noise,
                     occlusion: config.occlusion,
                     false_blobs: config.false_detections,
@@ -218,8 +259,11 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
             features.clear();
             matched.clear();
             fit_rms = None;
+            measurement_sigma = None;
+            geometry_condition = None;
             let start = Instant::now();
             let prior = nav.filter.as_ref().map(|f| &f.pose).unwrap_or(&seed);
+            let mut measurement_covariance = apsis_core::default_measurement_covariance();
             let (pose, reason) = if available {
                 let detected = corners::detect(&image.gray, calibrated);
                 features = detected.iter().map(|f| [f.pixel.x, f.pixel.y]).collect();
@@ -250,10 +294,15 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                     (None, Rejection::Features)
                 } else if matches.len() < 6 {
                     (None, Rejection::Association)
-                } else if let Some((p, rms)) =
-                    solve_robust(calibrated, &landmarks(), &matches, prior)
+                } else if let Some((p, rms, uncertainty)) =
+                    solve_uncertain(calibrated, &landmarks(), &matches, prior, 1.0)
                 {
                     fit_rms = Some(rms);
+                    measurement_covariance += uncertainty.covariance;
+                    measurement_sigma = Some(std::array::from_fn(|i| {
+                        measurement_covariance[(i, i)].sqrt()
+                    }));
+                    geometry_condition = Some(uncertainty.condition);
                     matched.retain(|m| {
                         calibrated
                             .project(p.transform(landmarks()[m[0] as usize]))
@@ -285,6 +334,7 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                 captured: t,
                 release: t + config.delay_ms / 1000.0,
                 pose,
+                covariance: measurement_covariance,
                 reason,
             });
         }
@@ -293,7 +343,12 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
         let update_start = Instant::now();
         while packets.front().is_some_and(|p| p.release <= t + 1e-9) {
             let packet = packets.pop_front().unwrap();
-            used |= nav.observe(packet.captured, packet.pose.as_ref(), packet.reason);
+            used |= nav.observe_with_covariance(
+                packet.captured,
+                packet.pose.as_ref(),
+                &packet.covariance,
+                packet.reason,
+            );
         }
         filter_us += update_start.elapsed().as_micros();
         filter_times.push(filter_us);
@@ -327,6 +382,10 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
             truth_q: quat(truth.attitude),
             error: None,
             angle: None,
+            nees_12: None,
+            last_nis_6: nav.filter.as_ref().and_then(|f| f.last_nis),
+            measurement_sigma,
+            geometry_condition,
             fit_rms,
             vision_us,
             filter_us,
@@ -345,6 +404,29 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
             tick.sigma = Some(std::array::from_fn(|i| f.covariance[(i, i)].sqrt()));
             tick.error = Some(error);
             tick.angle = Some(angle);
+            // Consistency scoring is downstream of estimation, never an update input.
+            let mut state_error = apsis_core::math::SVector::<f64, 12>::zeros();
+            state_error
+                .fixed_rows_mut::<3>(0)
+                .copy_from(&(f.pose.position - truth.position));
+            let truth_velocity =
+                V3::new(0.0024 * (t * 0.2).cos(), 0.0024 * (t * 0.3).cos(), -0.0005);
+            state_error
+                .fixed_rows_mut::<3>(3)
+                .copy_from(&(f.velocity - truth_velocity));
+            state_error
+                .fixed_rows_mut::<3>(6)
+                .copy_from(&(f.pose.attitude * truth.attitude.inverse()).scaled_axis());
+            let truth_rate = Q::from_scaled_axis(V3::new(0.0, 0.0, config.phase_rad))
+                * V3::new(0.035, 0.05, 0.14)
+                * config.tumble_scale;
+            state_error
+                .fixed_rows_mut::<3>(9)
+                .copy_from(&(f.rate - truth_rate));
+            tick.nees_12 = f
+                .covariance
+                .cholesky()
+                .map(|c| state_error.dot(&c.solve(&state_error)));
             tick.wire = target()
                 .iter()
                 .filter_map(|p| calibrated.project(f.pose.transform(*p)))
@@ -420,7 +502,7 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                 .replace("__RECORDING__", &json),
         )?;
     }
-    let mut csv=String::from("time_s,capture_s,state,valid,measurement_age_s,rejection,accepted,camera_available,x_m,y_m,z_m,vx_m_s,vy_m_s,vz_m_s,wx_rad_s,wy_rad_s,wz_rad_s,position_error_m,attitude_error_deg,vision_us,filter_us,sigma_px_m,sigma_py_m,sigma_pz_m,sigma_vx_m_s,sigma_vy_m_s,sigma_vz_m_s,sigma_theta_x_rad,sigma_theta_y_rad,sigma_theta_z_rad,sigma_wx_rad_s,sigma_wy_rad_s,sigma_wz_rad_s,qw,qx,qy,qz\n");
+    let mut csv=String::from("time_s,capture_s,state,valid,measurement_age_s,rejection,accepted,camera_available,x_m,y_m,z_m,vx_m_s,vy_m_s,vz_m_s,wx_rad_s,wy_rad_s,wz_rad_s,position_error_m,attitude_error_deg,vision_us,filter_us,sigma_px_m,sigma_py_m,sigma_pz_m,sigma_vx_m_s,sigma_vy_m_s,sigma_vz_m_s,sigma_theta_x_rad,sigma_theta_y_rad,sigma_theta_z_rad,sigma_wx_rad_s,sigma_wy_rad_s,sigma_wz_rad_s,qw,qx,qy,qz,nees_12,last_nis_6,geometry_condition,measurement_sigma_x_m,measurement_sigma_y_m,measurement_sigma_z_m,measurement_sigma_rx_rad,measurement_sigma_ry_rad,measurement_sigma_rz_rad\n");
     for f in &recording.frames {
         let mut row = vec![
             f.t.to_string(),
@@ -441,6 +523,15 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
         row.push(f.filter_us.to_string());
         row.extend((0..12).map(|i| f.sigma.map(|a| a[i].to_string()).unwrap_or_default()));
         row.extend((0..4).map(|i| f.q.map(|a| a[i].to_string()).unwrap_or_default()));
+        row.extend(
+            [f.nees_12, f.last_nis_6, f.geometry_condition]
+                .map(|v| v.map(|x| x.to_string()).unwrap_or_default()),
+        );
+        row.extend((0..6).map(|i| {
+            f.measurement_sigma
+                .map(|a| a[i].to_string())
+                .unwrap_or_default()
+        }));
         csv.push_str(&row.join(","));
         csv.push('\n');
     }
@@ -457,7 +548,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         }
         if arg == "--help" {
-            println!("apsis-cli [--out output] [--no-images] [--frames 1000] [--seed 42] [--noise 1] [--occlusion 0] [--false-detections 0] [--calibration-bias 0] [--delay-ms 0] [--glare 0.8] [--blackout-start 8] [--blackout-duration 3]");
+            println!("apsis-cli [--out output] [--no-images] [--frames 1000] [--seed 42] [--noise 1] [--occlusion 0] [--false-detections 0] [--calibration-bias 0] [--delay-ms 0] [--glare 0.8] [--blackout-start 8] [--blackout-duration 3] [--range-m 1.6] [--tumble-scale 1] [--phase-rad 0] [--light-gain 1] [--sun-angle-rad 0]");
             return Ok(());
         }
         let value = args.next().ok_or("missing argument value")?;
@@ -465,6 +556,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             "--out" => out = PathBuf::from(value),
             "--frames" => config.frames = value.parse()?,
             "--seed" => config.seed = value.parse()?,
+            "--range-m" => config.range_m = value.parse()?,
+            "--tumble-scale" => config.tumble_scale = value.parse()?,
+            "--phase-rad" => config.phase_rad = value.parse()?,
+            "--light-gain" => config.light_gain = value.parse()?,
+            "--sun-angle-rad" => config.sun_angle_rad = value.parse()?,
             "--noise" => config.noise = value.parse()?,
             "--occlusion" => config.occlusion = value.parse()?,
             "--false-detections" => config.false_detections = value.parse()?,
@@ -516,7 +612,12 @@ mod tests {
             let path =
                 std::env::temp_dir().join(format!("apsis-integrity-{name}-{}", std::process::id()));
             let r = run(config, path).unwrap();
-            assert!(r.frames.iter().any(|f| f.reason == "unsupported_boundary"));
+            // Weighting can prevent a bad fit reaching the boundary check at all.
+            // Keep the behavior guards below: nonzero availability and bounded valid error.
+            assert!(r.frames.iter().any(|f| matches!(
+                f.reason,
+                "unsupported_boundary" | "innovation_gate" | "pose_fit_failed"
+            )));
             let valid: Vec<_> = r.frames.iter().filter(|f| f.valid).collect();
             assert!(
                 !valid.is_empty(),

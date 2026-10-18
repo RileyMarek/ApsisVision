@@ -1,5 +1,6 @@
 //! Desktop synthetic camera and prescribed local motion. The shaded demo is in `scene`;
 //! `render` retains a coded-point fixture for independent pose-solver regression tests.
+pub mod dynamics;
 pub mod scene;
 use apsis_math::{target, Camera, Pose, Q, V3};
 

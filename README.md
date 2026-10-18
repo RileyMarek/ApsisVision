@@ -6,7 +6,13 @@ Apsis estimates a known target's position, velocity, attitude, and angular rate
 from camera images. Its navigation core is allocation-free and `no_std`.
 The desktop demo makes tracking—and its failures—visible.
 
-Research prototype. No thruster commands, docking autonomy, or flight qualification.
+Research prototype. A separate software-in-loop guidance reference is available;
+hardware actuation and flight qualification remain outside the evidence.
+
+**Current gate: not mission-ready.** Adaptive pose covariance improves paired tests
+but still fails an independent 128-trial integrity campaign. ORB and the first learned
+landmark model do not provide dependable poses. See the
+[latest measured results](docs/adaptive-perception.md) and [baseline readiness](docs/readiness.md).
 
 ## Run the demo
 
@@ -60,7 +66,7 @@ See the [scenario evidence](docs/scenarios.md) for results and limits.
 ## Pipeline
 
 ```text
-Shaded camera raster → Harris corners → association → PnP → boundary verification
+Shaded camera raster → Harris corners → association → PnP + covariance → boundary verification
                     → multiplicative error-state EKF → health + telemetry
 ```
 
@@ -77,12 +83,15 @@ Simulation truth is used for rendering and scoring, never estimator updates.
 | `apsis-sim` | Desktop image formation and controlled failures |
 | `apsis-cli` | Recording, three-pane viewer, CSV/JSON export |
 | `apsis-bench` | Calibrated image evaluation; truth isolated to scoring |
+| `apsis-mission` | Relative dynamics, approach, hold/abort, virtual capture reference |
+| `apsis-replay` | Bounded timestamped observation replay and host timing |
 
 ## Evidence and limits
 
 - **Known geometry and a warm start.** Matching uses an approximate pose prior.
   This is not global acquisition or an unknown-satellite tracker.
-- **Simplified environment.** Local prescribed motion, not orbital propagation;
+- **Simplified environment.** The viewer uses prescribed motion. The separate
+  rendezvous reference uses local HCW relative dynamics and torque-free rotation;
   lighting and camera noise are not radiometrically calibrated.
 - **Explicit failure behavior.** Acquiring, tracking, coasting, and lost states;
   stale and out-of-order measurements are rejected. Unsupported body boundaries
@@ -95,7 +104,26 @@ Simulation truth is used for rendering and scoring, never estimator updates.
 
 The [benchmark guide](docs/benchmarking.md) covers SPEED+/SHIRT import and evaluation.
 The [embedded guide](docs/embedded.md) covers the consumer example, storage sizes,
-stack evidence, and timing scope. No public-dataset accuracy result is claimed yet.
+stack evidence, replay faults, and timing scope. The [readiness report](docs/readiness.md)
+records failed real-image acquisition and overconfident covariance as open blockers.
+The [adaptive covariance and learned-model follow-up](docs/adaptive-perception.md)
+includes independent trials, FP32/INT8 export evidence, and failed hypotheses.
+Learned pose candidates are quarantined from navigation.
+
+## Exercise the integration gates
+
+```sh
+python -m pip install -r scripts/requirements-perception.txt
+python scripts/envelope_campaign.py --trials 128
+cargo run --release --locked -p apsis-mission -- --outage --out output/mission-reference
+python scripts/replay_fixture.py
+cargo run --release --locked -p apsis-replay -- output/replay/faults.jsonl --paced
+```
+
+The mission reference uses a declared pose sensor. Add `--pixels` to test the camera
+pipeline; current pixel runs do not acquire valid navigation. Virtual capture is
+not physical docking. Real-image download/evaluation commands are in the
+[benchmark guide](docs/benchmarking.md#cold-start-official-image-experiment).
 
 ## Development
 

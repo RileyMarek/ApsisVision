@@ -31,6 +31,7 @@ pub enum Rejection {
     OutOfOrder,
     InvalidTime,
     Numerical,
+    Covariance,
 }
 impl Rejection {
     pub fn label(self) -> &'static str {
@@ -46,6 +47,7 @@ impl Rejection {
             Self::OutOfOrder => "out_of_order",
             Self::InvalidTime => "invalid_timestamp",
             Self::Numerical => "numerical_fault",
+            Self::Covariance => "invalid_measurement_covariance",
         }
     }
 }
@@ -132,6 +134,21 @@ impl Navigator {
     }
     /// Reject lateness beyond the policy tolerance. No historical rewind/replay is performed.
     pub fn observe(&mut self, captured: f64, pose: Option<&Pose>, missing: Rejection) -> bool {
+        self.observe_with_covariance(
+            captured,
+            pose,
+            &crate::default_measurement_covariance(),
+            missing,
+        )
+    }
+    /// Pixel pipelines should supply full geometry-dependent pose covariance.
+    pub fn observe_with_covariance(
+        &mut self,
+        captured: f64,
+        pose: Option<&Pose>,
+        covariance: &crate::PoseCovariance,
+        missing: Rejection,
+    ) -> bool {
         let Some(now) = self.now else {
             self.reason = Rejection::InvalidTime;
             return false;
@@ -163,6 +180,13 @@ impl Navigator {
             return false;
         }
         let integrity_return = self.integrity_hold;
+        if !covariance.iter().all(|v| v.is_finite())
+            || (covariance - covariance.transpose()).amax() > 1e-10
+            || covariance.cholesky().is_none()
+        {
+            self.reason = Rejection::Covariance;
+            return false;
+        }
         let recovering = self
             .last_accepted
             .is_some_and(|t| now - t > self.policy.valid_coast_s);
@@ -175,12 +199,16 @@ impl Navigator {
             .map(|end| 1.0 + 3.0 * ((end - now) / 0.5).clamp(0.0, 1.0))
             .unwrap_or(1.0);
         if let Some(filter) = &mut self.filter {
-            if !filter.update_with_noise_scale(pose, scale) {
+            if !filter.update_with_covariance(pose, covariance, scale) {
                 self.reason = Rejection::Innovation;
                 return false;
             }
         } else {
-            self.filter = Some(Filter::new(pose.clone()));
+            let Some(filter) = Filter::new_with_covariance(pose.clone(), covariance) else {
+                self.reason = Rejection::Numerical;
+                return false;
+            };
+            self.filter = Some(filter);
         }
         self.last_accepted = Some(captured);
         if integrity_return {
@@ -248,6 +276,28 @@ mod tests {
             position: V3::new(0.0, 0.0, 1.6),
             attitude: Q::identity(),
         }
+    }
+    #[test]
+    fn malformed_measurement_covariance_cannot_initialize_or_update_navigation() {
+        let mut nav = Navigator::default();
+        let mut covariance = crate::default_measurement_covariance();
+        covariance[(0, 0)] = -1.0;
+        nav.predict_to(0.0).unwrap();
+        assert!(!nav.observe_with_covariance(0.0, Some(&pose()), &covariance, Rejection::None));
+        assert!(nav.filter.is_none());
+        assert_eq!(nav.health().rejection, Rejection::Covariance);
+        for i in 1..4 {
+            let t = i as f64 * 0.1;
+            nav.predict_to(t).unwrap();
+            nav.observe(t, Some(&pose()), Rejection::None);
+        }
+        let before = nav.filter.as_ref().unwrap().pose.position;
+        nav.predict_to(0.4).unwrap();
+        assert!(!nav.observe_with_covariance(0.4, Some(&pose()), &covariance, Rejection::None));
+        assert_eq!(nav.filter.as_ref().unwrap().pose.position, before);
+        assert_eq!(nav.health().rejection, Rejection::Covariance);
+        nav.predict_to(0.9).unwrap();
+        assert!(!nav.health().valid);
     }
     #[test]
     fn integrity_failure_latches_and_time_alone_cannot_restore_validity() {
