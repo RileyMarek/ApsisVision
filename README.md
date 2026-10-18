@@ -89,6 +89,8 @@ across three noise seeds. CI runs these checks and uploads the generated demo.
 Features and fixes land as focused commits on `development`. Merge into `main`
 after checks pass and the demo is reviewed.
 
-Next: realistic image formation and occlusion, robust pose acquisition, calibrated
-uncertainty, and public benchmark datasets. Relative guidance comes after navigation
-has earned its confidence.
+Next: robust failure handling, difficult lighting and occlusion, calibrated
+uncertainty, and recorded/live camera benchmarks. Zynq UltraScale+ MPSoC is the
+intended hardware target; deployment and radiation tolerance are unverified.
+See the [validation roadmap](docs/validation-roadmap.md) for the integration gates.
+Relative guidance comes after navigation has earned its confidence.
