@@ -3,6 +3,7 @@
 Calibration uses training images only. Export success is not accuracy or hardware qualification.
 """
 
+import argparse
 import hashlib
 import json
 import time
@@ -34,6 +35,9 @@ class TrainingCalibration(CalibrationDataReader):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--backbone-only", action="store_true")
+    arguments = parser.parse_args()
     torch.set_num_threads(4)
     out = ROOT / "output/learned"
     metadata = json.loads((out / "training.json").read_text())
@@ -59,7 +63,10 @@ def main():
         torch.load(out / "heatmap.pt", map_location="cpu", weights_only=True)
     )
     model.eval()
-    float_path, int_path = out / "heatmap.onnx", out / "heatmap-int8.onnx"
+    float_path = out / "heatmap.onnx"
+    int_path = out / (
+        "heatmap-backbone-int8.onnx" if arguments.backbone_only else "heatmap-int8.onnx"
+    )
     torch.onnx.export(
         model,
         torch.zeros(1, 1, 192, 256),
@@ -87,6 +94,20 @@ def main():
         )
     prepared_path = out / "heatmap-prepared.onnx"
     quant_pre_process(str(float_path), str(prepared_path))
+    graph = onnx.load(str(prepared_path))
+    selected = [
+        node.name
+        for node in graph.graph.node
+        if node.op_type == "Conv"
+        and (
+            not arguments.backbone_only
+            or node.name.startswith(("/stem/", "/s2/", "/s3/", "/s4/", "/s5/"))
+        )
+    ]
+    if not selected:
+        raise ValueError(
+            "No intended Conv nodes found; refuse to silently quantize a different scope"
+        )
     quantize_static(
         str(prepared_path),
         str(int_path),
@@ -95,6 +116,7 @@ def main():
         activation_type=QuantType.QUInt8,
         weight_type=QuantType.QInt8,
         per_channel=True,
+        nodes_to_quantize=selected,
     )
     onnx.checker.check_model(str(int_path))
     quantized = ort.InferenceSession(
@@ -115,6 +137,12 @@ def main():
         "onnxruntime": ort.__version__,
         "onnx": onnx.__version__,
         "provider": "CPUExecutionProvider",
+        "precision_scope": (
+            "encoder Conv INT8; decoder and heatmap head FP32"
+            if arguments.backbone_only
+            else "all Conv INT8; non-Conv operators floating"
+        ),
+        "quantized_conv_nodes": selected,
         "threads": 4,
         "calibration_training_images": len(calibration),
         "development_images": len(development),
@@ -131,9 +159,9 @@ def main():
         "deployment_approved": False,
         "limitations": "Heatmap drift only; task accuracy and confidence calibration require separate evaluation. Export/INT8 runtime exclude image IO, rectification and PnP.",
     }
-    (out / "export.json").write_text(
-        json.dumps(report, indent=2) + "\n", encoding="utf-8"
-    )
+    (
+        out / ("export-backbone.json" if arguments.backbone_only else "export.json")
+    ).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 
 
