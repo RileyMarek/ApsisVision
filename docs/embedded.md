@@ -21,7 +21,7 @@ python scripts/embedded_evidence.py
 ```
 
 The first command measures persistent type sizes and executes corner detection,
-association, PnP, convex-boundary verification, and filtering on a host thread
+association, PnP, convex-boundary verification, filtering and reference guidance on a host thread
 requesting a 128 KiB stack.
 The workload uses fixed arrays. Thread creation and printing belong to the host
 harness, not the core. The OS may round the request; successful completion is a
@@ -51,3 +51,43 @@ CI independently builds the release library with default features disabled for:
 These are library artifacts. No board startup code, firmware linking, device I/O,
 WCET proof, power/thermal test, or radiation qualification is supplied. Zynq
 UltraScale+ MPSoC remains an intended deployment target with no available hardware.
+
+## Bounded timestamp replay
+
+```sh
+python scripts/replay_fixture.py
+cargo run --release --locked -p apsis-replay -- output/replay/faults.jsonl --paced
+cargo run --release --locked -p apsis-replay -- output/real-images/shirt-roe1-lightbox.jsonl
+```
+
+NDJSON packets contain `captured_s`, `delivered_s`, and `pose` (null or an object with
+`position_m` and scalar-first unit `quaternion_wxyz`). Units and rotation follow the
+camera convention in `apsis-math`. The adapter keeps one record at a time: at most
+4096 bytes per record, 100000 packets per stream and 10 s between deliveries.
+Propagation uses ≤20 ms substeps. There is no growing observation queue or timing
+sample vector. The host parser/CLI uses `std` and bounded allocations; this is not
+firmware or a camera driver.
+
+Late/duplicate captures are rejected by navigation. Non-unit quaternions, malformed
+packets, oversized records, reversed delivery time or excessive scheduler gaps stop
+the stream with a nonzero exit. A consuming process must treat stream termination
+as unavailable/invalid; it must never keep the last valid output indefinitely.
+Reinitialization after transport corruption is the supervisor's responsibility.
+
+`--paced` schedules delivery against a monotonic host clock and includes scheduling
+lateness in measurement age. Without it, recorded delivery times advance virtually.
+Reports separate scheduler lateness from propagation/filter compute time and count
+20 ms update deadline misses. Parsing, file IO and image processing are excluded.
+These are host measurements, not end-to-end deadlines or real-time OS guarantees.
+
+The [151-packet host run](evidence/replay-2026-10-18.json) rejects one stale and one
+duplicate capture, handles 30 missing poses, returns to tracking, and records zero
+update deadline misses (maximum 549 µs; maximum scheduler lateness 279 µs).
+The official SHIRT pose-or-null replay accepts zero poses and stays acquiring,
+confirming the failed detector does not silently use ground truth.
+
+Hardware bring-up still requires an exact board/part and processor allocation,
+OS/firmware, camera transport and clock domain, memory/power/deadline budgets,
+ARM stack high-water and timing distributions, watchdog/reset recovery, and
+device/mission-specific fault and radiation assessment. No Zynq runtime measurement
+or radiation tolerance follows from cross-compilation.

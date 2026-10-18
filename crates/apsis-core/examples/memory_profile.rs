@@ -1,5 +1,6 @@
 //! Reproducible host footprint and constrained-stack smoke test, not a WCET/stack peak proof.
 use apsis_core::{
+    guidance::{Guidance, Input},
     math::{landmarks, Camera, Pose, Q, V3},
     navigation::{Navigator, Rejection},
     vision::{corners, silhouette, solve_robust},
@@ -14,6 +15,7 @@ fn workload() {
         }
     }
     let mut nav = Navigator::default();
+    let mut guidance = Guidance::default();
     let pose = Pose {
         position: V3::new(0.0, 0.0, 1.6),
         attitude: Q::identity(),
@@ -49,6 +51,15 @@ fn workload() {
         nav.predict_to(t).unwrap();
         nav.observe(t, Some(&solved), Rejection::None);
         std::hint::black_box(nav.health());
+        std::hint::black_box(guidance.update(Input {
+            pose: &solved,
+            velocity: V3::zeros(),
+            angular_rate: V3::zeros(),
+            valid: nav.health().valid,
+            timestamp_s: t,
+            sigma_position_m: 0.01,
+            in_fov: true,
+        }));
     }
 }
 fn main() {

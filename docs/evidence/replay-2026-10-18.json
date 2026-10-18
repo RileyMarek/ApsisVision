@@ -1,0 +1,24 @@
+{
+  "accepted": 119,
+  "bounded_input_bytes": 4096,
+  "final_state": "tracking",
+  "final_valid": true,
+  "hardware_verified": false,
+  "maximum_packets": 100000,
+  "maximum_scheduler_lateness_us": 279,
+  "maximum_update_us": 549,
+  "paced": true,
+  "packets": 151,
+  "platform": "host",
+  "rejections": {
+    "camera_unavailable": 30,
+    "none": 119,
+    "out_of_order": 1,
+    "stale_measurement": 1
+  },
+  "stale_packets": 1,
+  "timing_scope": "adapter propagation and filter only; excludes image detection, parsing, file IO and waiting",
+  "update_deadline_misses": 0,
+  "update_deadline_us": 20000,
+  "valid_packet_samples": 117
+}
