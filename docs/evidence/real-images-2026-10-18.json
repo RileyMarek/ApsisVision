@@ -1,0 +1,58 @@
+{
+  "method": "ORB descriptors registered to 11 Tango landmarks on 500 synthetic training images; seedless EPNP RANSAC; research baseline",
+  "no_pose_prior": true,
+  "training_images": 500,
+  "registered_descriptors": 3872,
+  "opencv": "5.0.0",
+  "selection_seed": 1729,
+  "geometry_sha256": "6d6a57f353ceb3691117deeab921debb29a68cfed60653cebf07a001da9c1725",
+  "groups": {
+    "speedplus/synthetic/validation": {
+      "frames": 40,
+      "estimated": 0,
+      "failed": 40,
+      "position_rms_m": null,
+      "attitude_rms_deg": null
+    },
+    "speedplus/lightbox/test": {
+      "frames": 40,
+      "estimated": 0,
+      "failed": 40,
+      "position_rms_m": null,
+      "attitude_rms_deg": null
+    },
+    "speedplus/sunlamp/test": {
+      "frames": 40,
+      "estimated": 0,
+      "failed": 40,
+      "position_rms_m": null,
+      "attitude_rms_deg": null
+    },
+    "shirt/roe1/lightbox": {
+      "frames": 20,
+      "estimated": 0,
+      "failed": 20,
+      "position_rms_m": null,
+      "attitude_rms_deg": null
+    },
+    "shirt/roe2/lightbox": {
+      "frames": 20,
+      "estimated": 0,
+      "failed": 20,
+      "position_rms_m": null,
+      "attitude_rms_deg": null
+    }
+  },
+  "scope": "Fixed small subset; SHIRT first 20 lightbox frames of each sequence. Not the official full-dataset score.",
+  "sources": [
+    "https://purl.stanford.edu/wv398fc4383",
+    "https://purl.stanford.edu/zq716br5462",
+    "https://github.com/tpark94/spnv2"
+  ],
+  "training_self_check": {
+    "not_held_out": true,
+    "frames": 10,
+    "estimated": 6,
+    "interpretation": "Training memorization positive control only; not generalization evidence."
+  }
+}
