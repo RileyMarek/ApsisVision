@@ -1,4 +1,5 @@
 //! Coordinate convention: target body to camera, +Z forward, +X right, +Y down.
+#![no_std]
 pub use nalgebra::{SMatrix, SVector, UnitQuaternion, Vector2, Vector3};
 pub type V3 = Vector3<f64>;
 pub type Q = UnitQuaternion<f64>;
@@ -41,7 +42,7 @@ impl Camera {
 }
 
 pub fn target() -> [V3; 8] {
-    std::array::from_fn(|i| {
+    core::array::from_fn(|i| {
         V3::new(
             if i & 1 == 0 { -0.8 } else { 0.8 },
             if i & 2 == 0 { -0.6 } else { 0.6 },

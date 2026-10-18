@@ -1,4 +1,5 @@
 //! Multiplicative error-state EKF: [position, velocity, attitude error, angular rate].
+#![no_std]
 use apsis_math::{Pose, SMatrix, SVector, Q, V3};
 type M12 = SMatrix<f64, 12, 12>;
 

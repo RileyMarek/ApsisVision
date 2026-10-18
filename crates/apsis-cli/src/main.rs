@@ -1,5 +1,5 @@
-use apsis_ekf::Filter;
-use apsis_math::{target, Camera, Pose, Q, V3};
+use apsis_core::math::{target, Camera, Pose, Q, V3};
+use apsis_core::{vision, Filter};
 use std::{error::Error, fmt::Write as _, fs, path::PathBuf, time::Instant};
 
 struct Summary {
@@ -31,12 +31,12 @@ fn run(frames: usize, seed: u64, out: PathBuf) -> Result<Summary, Box<dyn Error>
         let truth = apsis_sim::truth(time);
         let dropout = (200..225).contains(&(frame % 500));
         let image = apsis_sim::render(camera, &truth, &mut noise, dropout);
-        let points = apsis_vision::detect(&image, camera);
+        let points = vision::detect(&image, camera);
         if let Some(f) = &mut filter {
             f.predict(0.02);
         }
         let prior = filter.as_ref().map(|f| &f.pose).unwrap_or(&initial);
-        let measurement = apsis_vision::solve(camera, &points, prior);
+        let measurement = vision::solve(camera, &points, prior);
         let mut used = false;
         if let Some((pose, _)) = measurement {
             if let Some(f) = &mut filter {

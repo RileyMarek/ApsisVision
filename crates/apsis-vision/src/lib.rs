@@ -1,9 +1,26 @@
 //! Intensity-coded synthetic marker centroids and iterative calibrated PnP.
+#![no_std]
 use apsis_math::{target, Camera, Pose, SMatrix, SVector, Vector2};
 
-pub fn detect(image: &[u8], camera: Camera) -> Vec<(usize, Vector2<f64>)> {
+/// Bounded marker observations; no allocator or operating system is required.
+pub struct Observations {
+    points: [(usize, Vector2<f64>); 8],
+    len: usize,
+}
+impl core::ops::Deref for Observations {
+    type Target = [(usize, Vector2<f64>)];
+    fn deref(&self) -> &Self::Target {
+        &self.points[..self.len]
+    }
+}
+
+pub fn detect(image: &[u8], camera: Camera) -> Observations {
+    let mut result = Observations {
+        points: [(0, Vector2::zeros()); 8],
+        len: 0,
+    };
     if image.len() != camera.width * camera.height {
-        return Vec::new();
+        return result;
     }
     let mut sums = [(0.0, 0.0, 0); 8];
     for (index, &value) in image.iter().enumerate() {
@@ -16,11 +33,13 @@ pub fn detect(image: &[u8], camera: Camera) -> Vec<(usize, Vector2<f64>)> {
             }
         }
     }
-    sums.iter()
-        .enumerate()
-        .filter(|(_, s)| s.2 >= 4)
-        .map(|(id, s)| (id, Vector2::new(s.0 / s.2 as f64, s.1 / s.2 as f64)))
-        .collect()
+    for (id, sum) in sums.iter().enumerate() {
+        if sum.2 >= 4 {
+            result.points[result.len] = (id, Vector2::new(sum.0 / sum.2 as f64, sum.1 / sum.2 as f64));
+            result.len += 1;
+        }
+    }
+    result
 }
 
 pub fn solve(camera: Camera, points: &[(usize, Vector2<f64>)], seed: &Pose) -> Option<(Pose, f64)> {
@@ -70,7 +89,7 @@ pub fn solve(camera: Camera, points: &[(usize, Vector2<f64>)], seed: &Pose) -> O
     for (id, observed) in points {
         squared += (camera.project(pose.transform(model[*id]))? - observed).norm_squared();
     }
-    let rms = (squared / points.len() as f64).sqrt();
+    let rms = libm::sqrt(squared / points.len() as f64);
     (rms < 3.0).then_some((pose, rms))
 }
 
