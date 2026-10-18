@@ -30,10 +30,21 @@ not flight acceptance criteria.
 
 ## Hardware boundary
 
-The requested development target is Zynq UltraScale+ MPSoC; no particular board or
-radiation-qualified part has been selected. Begin by measuring the CPU implementation
-on the selected hardware. Add programmable-logic acceleration only for measured
-bottlenecks, after establishing a trusted CPU reference.
+The requested development target is Zynq UltraScale+ MPSoC; no hardware is currently
+available and no particular board or radiation-qualified part has been selected.
+`apsis-core`, including its math, marker vision, and filter dependencies, is `no_std`
+and allocation-free. CI cross-compiles it in isolation for AArch64 Linux, bare-metal
+AArch64, and bare-metal Armv7E-M. This establishes library build portability, not
+board compatibility, executable linking, measured performance, or flight readiness.
+The Cortex-M target is an independent portability check, not a Zynq target.
+
+No camera dataset is available yet. The next data milestone is a public benchmark
+with calibration and pose ground truth. Dataset-specific adapters and real-image
+features are needed before evaluating the current synthetic marker pipeline on it.
+
+Once hardware is available, measure the CPU implementation first. Add programmable-
+logic acceleration only for measured bottlenecks, after establishing a trusted CPU
+reference.
 
 Rust memory safety does not prevent radiation-induced memory corruption, sensor
 upsets, hardware faults, or algorithmic errors. Software fault injection can test

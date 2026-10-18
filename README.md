@@ -44,6 +44,7 @@ Simulation truth is used only for rendering and scoring, never as an estimator m
 
 | Crate | Responsibility |
 | --- | --- |
+| `apsis-core` | `no_std`, allocation-free public navigation entry point |
 | `apsis-math` | Camera projection, target geometry, quaternion pose operations |
 | `apsis-sim` | Local target motion and noisy marker images |
 | `apsis-vision` | Coded marker detection and iterative pose fitting |
@@ -69,10 +70,30 @@ The EKF uses a 13-value nominal state and a 12-dimensional multiplicative error 
   is not derived from the pose fit or calibrated across viewing geometries. The
   displayed ellipse approximates transverse position uncertainty, omitting depth
   correlation and attitude uncertainty.
-- **Desktop implementation.** Uses `std` and heap allocation. Rust provides memory
-  safety, but hard real-time timing, `no_std`, and flight qualification require
-  separate engineering and evidence. A simulated 50 Hz cadence is not a measured
-  real-time performance guarantee.
+- **Portable core, desktop demo.** `apsis-core` and its math, vision, and filter
+  dependencies use `no_std`, fixed-size storage, and `libm`. Simulation and playback
+  use `std` and heap allocation. A simulated 50 Hz cadence is not a measured
+  real-time performance guarantee; flight qualification remains separate work.
+
+## Embedded portability
+
+CI builds the `apsis-core` library in isolation for these targets:
+
+| Target | What the build checks |
+| --- | --- |
+| `aarch64-unknown-linux-gnu` | AArch64 Linux library compilation |
+| `aarch64-unknown-none` | Bare-metal AArch64 without `std` |
+| `thumbv7em-none-eabihf` | Bare-metal Armv7E-M with hard-float ABI |
+
+```sh
+rustup target add aarch64-unknown-none
+cargo build --release --locked --no-default-features -p apsis-core --lib --target aarch64-unknown-none
+```
+
+These compile library artifacts; they do not link or run board firmware. The
+Cortex-M target is an additional portability check, not a Zynq processor target.
+Zynq board support, boot/runtime integration, camera drivers, timing, and fault
+tolerance remain untested. No physical board is currently available.
 
 ## Development
 
