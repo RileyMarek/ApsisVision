@@ -3,7 +3,7 @@ use apsis_core::{
     guidance::{Guidance, Input, Mode},
     math::{landmarks, target, Camera, Pose, Q, V3},
     navigation::{Navigator, Rejection},
-    vision::{corners, silhouette, solve_uncertain},
+    vision::{corners, integrity, solve_admitted},
 };
 use apsis_sim::{
     dynamics::{contact_acceleration, RelativeState, RigidBody},
@@ -63,6 +63,7 @@ fn run(
         if tick % 5 == 0 {
             let unavailable = outage.is_some_and(|start| (start..start + 3.0).contains(&t));
             let mut covariance = apsis_core::default_measurement_covariance();
+            let mut missing = Rejection::PoseFit;
             let measurement = if unavailable {
                 None
             } else if pixels {
@@ -71,12 +72,20 @@ fn run(
                 let features = corners::detect(&image.gray, camera);
                 let prior = nav.filter.as_ref().map(|f| &f.pose).unwrap_or(&fixed_prior);
                 let matches = corners::associate(camera, &landmarks(), &features, prior, 20.0);
-                solve_uncertain(camera, &landmarks(), &matches, prior, 1.0).and_then(
-                    |(p, _, uncertainty)| {
+                solve_admitted(camera, &landmarks(), &matches, prior, 1.0)
+                    .map_err(|reason| {
+                        missing = reason.into();
+                    })
+                    .ok()
+                    .and_then(|(p, _, uncertainty)| {
                         covariance += uncertainty.covariance;
-                        silhouette::verify(&image.gray, camera, &target(), &p).map(|_| p)
-                    },
-                )
+                        integrity::cubesat_modes(&image.gray, camera, &p)
+                            .map_err(|reason| {
+                                missing = reason.into();
+                            })
+                            .ok()
+                            .map(|_| p)
+                    })
             } else {
                 // A declared stochastic pose sensor, not camera-derived evidence.
                 let mut p = truth.clone();
@@ -93,7 +102,7 @@ fn run(
                 if unavailable {
                     Rejection::NoImage
                 } else {
-                    Rejection::PoseFit
+                    missing
                 },
             ) {
                 accepted += 1;

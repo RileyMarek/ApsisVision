@@ -107,15 +107,16 @@ def solve_correspondences(model, pixels, k):
         tvec,
     )
     projected, _ = cv.projectPoints(model, rvec, tvec, k, None)
-    error = np.linalg.norm(
-        projected.reshape(-1, 2)[ids] - np.asarray(pixels)[ids], axis=1
-    )
+    all_error = np.linalg.norm(projected.reshape(-1, 2) - np.asarray(pixels), axis=1)
+    error = all_error[ids]
     rotation, _ = cv.Rodrigues(rvec)
     depth = (np.asarray(model) @ rotation.T + tvec.ravel())[:, 2]
     if (
         not np.isfinite(tvec).all()
         or np.any(depth <= 0)
         or np.sqrt(np.mean(error**2)) > 3
+        or not np.isfinite(all_error).all()
+        or np.mean(all_error) > 3.0
     ):
         return None
     q = Rotation.from_matrix(rotation).as_quat()
@@ -124,6 +125,7 @@ def solve_correspondences(model, pixels, k):
         "quaternion_wxyz": [float(q[3]), *q[:3].tolist()],
         "inliers": len(ids),
         "rms_px": float(np.sqrt(np.mean(error**2))),
+        "all_correspondence_mean_px": float(np.mean(all_error)),
     }
 
 

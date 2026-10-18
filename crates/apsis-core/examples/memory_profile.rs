@@ -3,7 +3,7 @@ use apsis_core::{
     guidance::{Guidance, Input},
     math::{landmarks, Camera, Pose, Q, V3},
     navigation::{Navigator, Rejection},
-    vision::{corners, silhouette, solve_uncertain},
+    vision::{corners, integrity, silhouette, solve_admitted},
     Filter,
 };
 fn workload() {
@@ -45,7 +45,10 @@ fn workload() {
             15.0,
         ));
         let (solved, _, uncertainty) =
-            solve_uncertain(camera, &landmarks(), &points, &pose, 1.0).unwrap();
+            solve_admitted(camera, &landmarks(), &points, &pose, 1.0).unwrap();
+        // This small raster has no resolvable plate; exercise abstention without
+        // pretending the host smoke fixture qualifies the full-image mode check.
+        let _ = std::hint::black_box(integrity::cubesat_modes(&pixels, camera, &solved));
         let covariance = uncertainty.covariance + apsis_core::default_measurement_covariance();
         let t = i as f64 * 0.02;
         nav.predict_to(t).unwrap();

@@ -2,7 +2,7 @@
 use apsis_core::{
     math::{Camera, Pose, Q, V3},
     navigation::{Navigator, Rejection},
-    vision::{corners, solve_uncertain},
+    vision::{corners, solve_admitted},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -180,19 +180,23 @@ fn evaluate(manifest: &Manifest, root: &Path) -> Result<Report, Box<dyn Error>> 
         let detected = corners::detect(&pixels, camera);
         let prior = nav.filter.as_ref().map(|f| &f.pose).unwrap_or(&initial);
         let matched = corners::associate(camera, &model, &detected, prior, 20.0);
-        let solved = solve_uncertain(camera, &model, &matched, prior, 1.0);
+        let solved = solve_admitted(camera, &model, &matched, prior, 1.0);
         let covariance = solved
             .as_ref()
             .map(|p| p.2.covariance + apsis_core::default_measurement_covariance())
-            .unwrap_or_else(apsis_core::default_measurement_covariance);
+            .unwrap_or_else(|_| apsis_core::default_measurement_covariance());
         let accepted = nav.observe_with_covariance(
             sample.timestamp_s,
-            solved.as_ref().map(|p| &p.0),
+            solved.as_ref().ok().map(|p| &p.0),
             &covariance,
             if matched.len() < 6 {
                 Rejection::Association
             } else {
-                Rejection::PoseFit
+                solved
+                    .as_ref()
+                    .err()
+                    .map(|e| (*e).into())
+                    .unwrap_or(Rejection::None)
             },
         );
         let vision_us = start.elapsed().as_micros();

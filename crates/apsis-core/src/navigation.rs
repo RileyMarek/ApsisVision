@@ -32,6 +32,8 @@ pub enum Rejection {
     InvalidTime,
     Numerical,
     Covariance,
+    Reprojection,
+    Ambiguous,
 }
 impl Rejection {
     pub fn label(self) -> &'static str {
@@ -48,6 +50,20 @@ impl Rejection {
             Self::InvalidTime => "invalid_timestamp",
             Self::Numerical => "numerical_fault",
             Self::Covariance => "invalid_measurement_covariance",
+            Self::Reprojection => "reprojection_gate",
+            Self::Ambiguous => "ambiguous_geometry",
+        }
+    }
+}
+impl From<crate::vision::integrity::Failure> for Rejection {
+    fn from(failure: crate::vision::integrity::Failure) -> Self {
+        use crate::vision::integrity::Failure;
+        match failure {
+            Failure::Fit => Self::PoseFit,
+            Failure::Reprojection => Self::Reprojection,
+            Failure::Covariance => Self::Covariance,
+            Failure::Boundary => Self::Boundary,
+            Failure::Ambiguous => Self::Ambiguous,
         }
     }
 }
@@ -86,7 +102,7 @@ pub struct Navigator {
     recovery_until: Option<f64>,
     accepted: usize,
     reason: Rejection,
-    integrity_hold: bool,
+    integrity_hold: Option<Rejection>,
     integrity_until: Option<f64>,
 }
 impl Default for Navigator {
@@ -110,7 +126,7 @@ impl Navigator {
             recovery_until: None,
             accepted: 0,
             reason: Rejection::None,
-            integrity_hold: false,
+            integrity_hold: None,
             integrity_until: None,
         }
     }
@@ -168,8 +184,11 @@ impl Navigator {
         }
         let Some(pose) = pose else {
             self.reason = missing;
-            if missing == Rejection::Boundary {
-                self.integrity_hold = true;
+            if matches!(
+                missing,
+                Rejection::Boundary | Rejection::Reprojection | Rejection::Ambiguous
+            ) {
+                self.integrity_hold = Some(missing);
             }
             return false;
         };
@@ -179,7 +198,7 @@ impl Navigator {
             self.reason = Rejection::Numerical;
             return false;
         }
-        let integrity_return = self.integrity_hold;
+        let integrity_return = self.integrity_hold.is_some();
         if !covariance.iter().all(|v| v.is_finite())
             || (covariance - covariance.transpose()).amax() > 1e-10
             || covariance.cholesky().is_none()
@@ -214,7 +233,7 @@ impl Navigator {
         if integrity_return {
             self.integrity_until = Some(now + 0.5);
         }
-        self.integrity_hold = false;
+        self.integrity_hold = None;
         self.recovery_until = recovery_until;
         self.accepted = if recovering || integrity_return {
             1
@@ -238,7 +257,7 @@ impl Navigator {
         let state = match age {
             None => State::Acquiring,
             Some(a)
-                if self.integrity_hold
+                if self.integrity_hold.is_some()
                     || self.reason == Rejection::Numerical
                     || a > self.policy.lost_after_s
                     || !bounded =>
@@ -258,8 +277,8 @@ impl Navigator {
                 && age.is_some_and(|a| a <= self.policy.valid_coast_s),
             timestamp_s: now,
             measurement_age_s: age,
-            rejection: if self.integrity_hold && self.reason != Rejection::Numerical {
-                Rejection::Boundary
+            rejection: if self.reason != Rejection::Numerical {
+                self.integrity_hold.unwrap_or(self.reason)
             } else {
                 self.reason
             },
@@ -275,6 +294,35 @@ mod tests {
         Pose {
             position: V3::new(0.0, 0.0, 1.6),
             attitude: Q::identity(),
+        }
+    }
+    #[test]
+    fn visual_failures_latch_their_reason_before_any_large_r_update() {
+        for failure in [Rejection::Reprojection, Rejection::Ambiguous] {
+            let mut nav = Navigator::default();
+            for i in 0..3 {
+                let t = i as f64 * 0.1;
+                nav.predict_to(t).unwrap();
+                assert!(nav.observe(t, Some(&pose()), Rejection::None));
+            }
+            nav.predict_to(0.3).unwrap();
+            let before = nav.filter.as_ref().unwrap().clone();
+            let huge = crate::PoseCovariance::identity() * 1e12;
+            assert!(!nav.observe_with_covariance(0.3, None, &huge, failure));
+            assert_eq!(nav.filter.as_ref().unwrap().covariance, before.covariance);
+            assert!(!nav.health().valid);
+            assert_eq!(nav.health().state, State::Lost);
+            nav.predict_to(0.4).unwrap();
+            nav.observe(0.4, None, Rejection::Features);
+            assert_eq!(nav.health().rejection, failure);
+            nav.predict_to(0.5).unwrap();
+            assert!(nav.observe(0.5, Some(&pose()), Rejection::None));
+            assert!(!nav.health().valid);
+            for t in [0.6, 0.7, 1.01] {
+                nav.predict_to(t).unwrap();
+                assert!(nav.observe(t, Some(&pose()), Rejection::None));
+            }
+            assert!(nav.health().valid);
         }
     }
     #[test]

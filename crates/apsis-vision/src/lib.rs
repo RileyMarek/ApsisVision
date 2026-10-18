@@ -2,6 +2,7 @@
 //! The intensity-coded detector below is retained only for synthetic marker fixtures.
 #![no_std]
 pub mod corners;
+pub mod integrity;
 pub mod silhouette;
 pub mod uncertainty;
 use apsis_math::{target, Camera, Pose, SMatrix, SVector, Vector2, V3};
@@ -207,6 +208,21 @@ pub fn solve_uncertain(
     let (pose, rms) = solve_robust(camera, model, points, seed)?;
     let uncertainty = uncertainty::estimate(camera, model, points, &pose, pixel_sigma_floor)?;
     Some((pose, rms, uncertainty))
+}
+
+/// Explicit visual admission precedes covariance estimation and the downstream NIS gate.
+pub fn solve_admitted(
+    camera: Camera,
+    model: &[V3],
+    points: &[(usize, Vector2<f64>)],
+    seed: &Pose,
+    pixel_sigma_floor: f64,
+) -> Result<(Pose, f64, uncertainty::PoseUncertainty), integrity::Failure> {
+    let (pose, rms) = solve_robust(camera, model, points, seed).ok_or(integrity::Failure::Fit)?;
+    integrity::reprojection(camera, model, points, &pose)?;
+    let uncertainty = uncertainty::estimate(camera, model, points, &pose, pixel_sigma_floor)
+        .ok_or(integrity::Failure::Covariance)?;
+    Ok((pose, rms, uncertainty))
 }
 
 #[cfg(test)]

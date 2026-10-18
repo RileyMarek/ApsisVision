@@ -22,11 +22,15 @@ class IntegrityTests(unittest.TestCase):
             model, np.array([0.2, -0.1, 0.3]), np.array([0.05, -0.02, 3.0]), k, None
         )
         pixels = pixels.reshape(-1, 2)
-        pixels[-2:] += 80
         estimate = solve_correspondences(model, pixels, k)
         self.assertIsNotNone(estimate)
         np.testing.assert_allclose(estimate["position_m"], [0.05, -0.02, 3], atol=1e-5)
         self.assertGreaterEqual(estimate["inliers"], 9)
+        pixels[-2:] += 80
+        self.assertIsNone(
+            solve_correspondences(model, pixels, k),
+            "RANSAC subset support cannot bypass all-correspondence MRE admission",
+        )
         self.assertIsNone(solve_correspondences(model[:5], pixels[:5], k))
 
     def test_blank_image_rejects_and_inference_has_no_truth_argument(self):
