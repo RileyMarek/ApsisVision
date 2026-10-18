@@ -10,6 +10,7 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -r scripts/requirements-learned.txt
       - run: python -m unittest discover -s scripts -p 'test_learned_perception.py'
+      - run: python -m unittest discover -s scripts -p 'test_visibility.py'
   portability:
     runs-on: ubuntu-latest
     strategy:

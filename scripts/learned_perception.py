@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import time
+from pathlib import Path
 
 import cv2 as cv
 import numpy as np
@@ -59,7 +60,7 @@ class HeatmapNet(nn.Module):
         self.u4, self.u3, self.u2 = block(224, 96), block(160, 64), block(96, 48)
         self.head = nn.Conv2d(48, 11, 1)
 
-    def forward(self, image):
+    def features(self, image):
         x2 = self.s2(self.stem(image))
         x3 = self.s3(x2)
         x4 = self.s4(x3)
@@ -97,7 +98,10 @@ class HeatmapNet(nn.Module):
                 1,
             )
         )
-        return self.head(x)
+        return x
+
+    def forward(self, image):
+        return self.head(self.features(image))
 
 
 def image_tensor(image):
@@ -135,7 +139,23 @@ def decode(logits, image_shape):
 
 def infer(image, camera_matrix, model, network):
     with torch.inference_mode():
-        logits = network(image_tensor(image)[None])[0].numpy()
+        output = network(image_tensor(image)[None])
+        if isinstance(output, tuple):
+            from visibility_perception import spatial_moments
+
+            heatmaps, visibility = output
+            center, spread = spatial_moments(heatmaps)
+            points = (center[0].numpy() + 0.5) * np.array(
+                [image.shape[1] / GRID_W, image.shape[0] / GRID_H]
+            ) - 0.5
+            visible = (visibility[0].sigmoid().numpy() > 0.5) & (
+                spread[0].diagonal(dim1=-2, dim2=-1).sum(-1).numpy() < 16.0
+            )
+            ids = np.flatnonzero(visible)
+            return solve_correspondences(model[ids], points[ids], camera_matrix), len(
+                ids
+            )
+        logits = output[0].numpy()
     points, confidence = decode(logits, image.shape)
     ids = np.flatnonzero(
         confidence >= 0.05
@@ -222,9 +242,34 @@ def train(options):
     )
     if set(hashes) & set(dev_hashes):
         raise ValueError("Train/development image overlap")
-    network = HeatmapNet()
+    supervised = getattr(options, "visibility_labels", None) is not None
+    if supervised:
+        from visibility_perception import VisibilityNet, load_supervision, visible_loss
+
+        visibility, masks = load_supervision(
+            options.visibility_labels,
+            hashes,
+            selection["geometry_sha256"],
+            options.composite,
+        )
+        dev_visibility, _ = load_supervision(
+            options.visibility_labels, dev_hashes, selection["geometry_sha256"], False
+        )
+        network = VisibilityNet()
+    else:
+        network = HeatmapNet()
+
+    def criterion(output, coordinates, flags=None):
+        return (
+            visible_loss(*output, coordinates, flags)
+            if supervised
+            else heatmap_loss(output, coordinates)
+        )
+
     optimizer = torch.optim.AdamW(network.parameters(), lr=0.001, weight_decay=0.0001)
-    out = ROOT / "output/learned"
+    out = options.model_dir or ROOT / (
+        "output/learned-visibility" if supervised else "output/learned"
+    )
     out.mkdir(parents=True, exist_ok=True)
     best = float("inf")
     history = []
@@ -236,12 +281,33 @@ def train(options):
             image = images[ids].clone()
             # Photometric augmentation only: no truth-informed crop at inference.
             gain = 0.5 + torch.rand(len(ids), 1, 1, 1)
-            gamma = 0.6 + torch.rand(len(ids), 1, 1, 1)
+            flags = visibility[ids].clone() if supervised else None
+            if supervised and options.composite:
+                from visibility_perception import augment
+
+                for n, index in enumerate(ids):
+                    array = (image[n, 0].numpy() * 255).round().astype(np.uint8)
+                    changed, labels_changed = augment(
+                        array,
+                        (labels[index].numpy() + 0.5) * 4 - 0.5,
+                        flags[n].numpy(),
+                        masks[int(index)],
+                        SEED + epoch * len(images) + int(index),
+                    )
+                    image[n, 0] = (
+                        torch.from_numpy(changed.copy()).to(torch.float32) / 255
+                    )
+                    flags[n] = torch.from_numpy(labels_changed.copy())
+            gamma = (
+                (0.2 + 2.8 * torch.rand(len(ids), 1, 1, 1))
+                if supervised
+                else 0.6 + torch.rand(len(ids), 1, 1, 1)
+            )
             image = (image.pow(gamma) * gain + torch.randn_like(image) * 0.015).clamp(
                 0, 1
             )
             optimizer.zero_grad()
-            loss = heatmap_loss(network(image), labels[ids])
+            loss = criterion(network(image), labels[ids], flags)
             loss.backward()
             nn.utils.clip_grad_norm_(network.parameters(), 5.0)
             optimizer.step()
@@ -250,8 +316,10 @@ def train(options):
         with torch.inference_mode():
             dev = sum(
                 float(
-                    heatmap_loss(
-                        network(dev_images[i : i + 16]), dev_labels[i : i + 16]
+                    criterion(
+                        network(dev_images[i : i + 16]),
+                        dev_labels[i : i + 16],
+                        dev_visibility[i : i + 16] if supervised else None,
                     )
                 )
                 * len(dev_images[i : i + 16])
@@ -271,6 +339,13 @@ def train(options):
             torch.save(network.state_dict(), out / "heatmap.pt")
         print(history[-1], flush=True)
     metadata = {
+        "visibility_supervised": supervised,
+        "visibility_source_sha256": (
+            hashlib.sha256(options.visibility_labels.read_bytes()).hexdigest()
+            if supervised
+            else None
+        ),
+        "compositing": supervised and options.composite,
         "seed": SEED,
         "epochs": options.epochs,
         "torch": torch.__version__,
@@ -284,7 +359,7 @@ def train(options):
         "best_development_loss": best,
         "elapsed_s": time.perf_counter() - start,
         "history": history,
-        "limits": "400 training / 100 development images; supervised geometric vertices, no visibility labels or calibrated confidence; no hardware evidence",
+        "limits": "400 training / 100 development images; geometric visibility only if explicitly supplied; confidence uncalibrated; no hardware evidence",
     }
     (out / "training.json").write_text(
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
@@ -293,7 +368,7 @@ def train(options):
 
 def evaluate(options):
     torch.set_num_threads(options.threads)
-    out = ROOT / "output/learned"
+    out = getattr(options, "model_dir", None) or ROOT / "output/learned"
     metadata = json.loads((out / "training.json").read_text())
     selection = json.loads((ROOT / "output/datasets/selection.json").read_text())
     if selection["geometry_sha256"] != metadata["geometry_sha256"]:
@@ -302,7 +377,16 @@ def evaluate(options):
     geometry = loadmat(ROOT / "output/datasets/tangoPoints.mat")[
         "tango3Dpoints"
     ].T.astype(np.float64)
-    network = HeatmapNet()
+    if metadata.get("visibility_supervised", False):
+        from visibility_perception import VisibilityNet
+
+        if options.runtime != "torch":
+            raise ValueError(
+                "Visibility model ONNX export/quantization is not qualified; use torch diagnostics"
+            )
+        network = VisibilityNet()
+    else:
+        network = HeatmapNet()
     network.load_state_dict(
         torch.load(out / "heatmap.pt", map_location="cpu", weights_only=True)
     )
@@ -414,7 +498,16 @@ def main():
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--runtime", choices=["torch", "onnx", "int8"], default="torch")
+    parser.add_argument("--visibility-labels", type=Path)
+    parser.add_argument("--model-dir", type=Path)
+    parser.add_argument("--composite", action="store_true")
     options = parser.parse_args()
+    if options.model_dir is not None and not options.model_dir.resolve().is_relative_to(
+        ROOT / "output"
+    ):
+        parser.error("Model outputs must remain under output/")
+    if options.composite and options.visibility_labels is None:
+        parser.error("Compositing requires registered visibility labels and masks")
     if not 1 <= options.epochs <= 100 or not 1 <= options.threads <= 8:
         parser.error("epochs must be 1..100 and threads 1..8")
     (train if options.mode == "train" else evaluate)(options)
