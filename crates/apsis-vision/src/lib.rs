@@ -1,6 +1,8 @@
-//! Intensity-coded synthetic marker centroids and iterative calibrated PnP.
+//! Grayscale corners, calibrated PnP, and known-convex-body boundary verification.
+//! The intensity-coded detector below is retained only for synthetic marker fixtures.
 #![no_std]
 pub mod corners;
+pub mod silhouette;
 use apsis_math::{target, Camera, Pose, SMatrix, SVector, Vector2, V3};
 
 /// Bounded marker observations; no allocator or operating system is required.

@@ -261,7 +261,18 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                                 (pixel - apsis_core::math::Vector2::new(m[1], m[2])).norm() < 2.5
                             })
                     });
-                    (Some(p), Rejection::None)
+                    if apsis_core::vision::silhouette::verify(
+                        &image.gray,
+                        calibrated,
+                        &target(),
+                        &p,
+                    )
+                    .is_some()
+                    {
+                        (Some(p), Rejection::None)
+                    } else {
+                        (None, Rejection::Boundary)
+                    }
                 } else {
                     (None, Rejection::PoseFit)
                 }
@@ -481,6 +492,42 @@ fn main() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn clutter_and_noisy_reacquisition_cannot_repeat_false_valid_regressions() {
+        for (name, config) in [
+            (
+                "clutter",
+                Config {
+                    false_detections: 16,
+                    save_images: false,
+                    ..Config::default()
+                },
+            ),
+            (
+                "noise",
+                Config {
+                    noise: 12.0,
+                    seed: 43,
+                    save_images: false,
+                    ..Config::default()
+                },
+            ),
+        ] {
+            let path =
+                std::env::temp_dir().join(format!("apsis-integrity-{name}-{}", std::process::id()));
+            let r = run(config, path).unwrap();
+            assert!(r.frames.iter().any(|f| f.reason == "unsupported_boundary"));
+            let valid: Vec<_> = r.frames.iter().filter(|f| f.valid).collect();
+            assert!(
+                !valid.is_empty(),
+                "must not pass by disabling navigation entirely"
+            );
+            assert!(
+                valid.iter().all(|f| f.error.is_some_and(|e| e < 0.15)),
+                "{name}: false-valid position regression"
+            );
+        }
+    }
     #[test]
     fn default_twenty_second_recording_has_bounded_recovery() {
         let path = std::env::temp_dir().join(format!("apsis-default-{}", std::process::id()));

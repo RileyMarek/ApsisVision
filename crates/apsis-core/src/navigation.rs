@@ -25,6 +25,7 @@ pub enum Rejection {
     Features,
     Association,
     PoseFit,
+    Boundary,
     Innovation,
     Stale,
     OutOfOrder,
@@ -39,6 +40,7 @@ impl Rejection {
             Self::Features => "insufficient_features",
             Self::Association => "insufficient_matches",
             Self::PoseFit => "pose_fit_failed",
+            Self::Boundary => "unsupported_boundary",
             Self::Innovation => "innovation_gate",
             Self::Stale => "stale_measurement",
             Self::OutOfOrder => "out_of_order",
@@ -82,6 +84,8 @@ pub struct Navigator {
     recovery_until: Option<f64>,
     accepted: usize,
     reason: Rejection,
+    integrity_hold: bool,
+    integrity_until: Option<f64>,
 }
 impl Default for Navigator {
     fn default() -> Self {
@@ -104,6 +108,8 @@ impl Navigator {
             recovery_until: None,
             accepted: 0,
             reason: Rejection::None,
+            integrity_hold: false,
+            integrity_until: None,
         }
     }
     pub fn predict_to(&mut self, timestamp: f64) -> Result<(), Rejection> {
@@ -145,6 +151,9 @@ impl Navigator {
         }
         let Some(pose) = pose else {
             self.reason = missing;
+            if missing == Rejection::Boundary {
+                self.integrity_hold = true;
+            }
             return false;
         };
         if !pose.position.iter().all(|v| v.is_finite())
@@ -153,6 +162,7 @@ impl Navigator {
             self.reason = Rejection::Numerical;
             return false;
         }
+        let integrity_return = self.integrity_hold;
         let recovering = self
             .last_accepted
             .is_some_and(|t| now - t > self.policy.valid_coast_s);
@@ -173,8 +183,16 @@ impl Navigator {
             self.filter = Some(Filter::new(pose.clone()));
         }
         self.last_accepted = Some(captured);
+        if integrity_return {
+            self.integrity_until = Some(now + 0.5);
+        }
+        self.integrity_hold = false;
         self.recovery_until = recovery_until;
-        self.accepted += 1;
+        self.accepted = if recovering || integrity_return {
+            1
+        } else {
+            self.accepted.saturating_add(1)
+        };
         self.reason = Rejection::None;
         true
     }
@@ -192,13 +210,15 @@ impl Navigator {
         let state = match age {
             None => State::Acquiring,
             Some(a)
-                if self.reason == Rejection::Numerical
+                if self.integrity_hold
+                    || self.reason == Rejection::Numerical
                     || a > self.policy.lost_after_s
                     || !bounded =>
             {
                 State::Lost
             }
             Some(_) if self.accepted < 3 => State::Acquiring,
+            Some(_) if self.integrity_until.is_some_and(|end| now < end) => State::Acquiring,
             Some(_) if self.recovery_until.is_some_and(|end| now < end) => State::Acquiring,
             Some(a) if a > self.policy.tracking_age_s => State::Coasting,
             Some(_) => State::Tracking,
@@ -210,7 +230,11 @@ impl Navigator {
                 && age.is_some_and(|a| a <= self.policy.valid_coast_s),
             timestamp_s: now,
             measurement_age_s: age,
-            rejection: self.reason,
+            rejection: if self.integrity_hold && self.reason != Rejection::Numerical {
+                Rejection::Boundary
+            } else {
+                self.reason
+            },
         }
     }
 }
@@ -224,6 +248,33 @@ mod tests {
             position: V3::new(0.0, 0.0, 1.6),
             attitude: Q::identity(),
         }
+    }
+    #[test]
+    fn integrity_failure_latches_and_time_alone_cannot_restore_validity() {
+        let mut nav = Navigator::default();
+        for i in 0..3 {
+            let t = i as f64 * 0.1;
+            nav.predict_to(t).unwrap();
+            assert!(nav.observe(t, Some(&pose()), Rejection::None));
+        }
+        assert!(nav.health().valid);
+        nav.predict_to(0.3).unwrap();
+        assert!(!nav.observe(0.3, None, Rejection::Boundary));
+        assert_eq!(nav.health().state, State::Lost);
+        nav.predict_to(0.4).unwrap();
+        nav.observe(0.4, None, Rejection::Association);
+        assert!(!nav.health().valid);
+        assert_eq!(nav.health().rejection, Rejection::Boundary);
+        nav.predict_to(0.5).unwrap();
+        assert!(nav.observe(0.5, Some(&pose()), Rejection::None));
+        nav.predict_to(1.0).unwrap();
+        // A single supported pose followed by prediction is not reacquisition.
+        assert!(!nav.health().valid);
+        assert!(nav.observe(1.0, Some(&pose()), Rejection::None));
+        assert!(!nav.health().valid);
+        nav.predict_to(1.1).unwrap();
+        assert!(nav.observe(1.1, Some(&pose()), Rejection::None));
+        assert!(nav.health().valid);
     }
     #[test]
     fn blackout_coasts_invalidates_then_recovers_without_reset() {
