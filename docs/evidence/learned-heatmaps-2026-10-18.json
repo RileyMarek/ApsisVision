@@ -1,0 +1,263 @@
+{
+  "training": {
+    "seed": 1729,
+    "epochs": 20,
+    "torch": "2.14.1+cpu",
+    "threads": 4,
+    "parameters": 101803,
+    "best_development_loss": 6.202264881134033,
+    "elapsed_s": 209.63747349999994,
+    "history": [
+      {
+        "epoch": 1,
+        "training_loss": 7.692640533447266,
+        "development_loss": 7.997161979675293
+      },
+      {
+        "epoch": 2,
+        "training_loss": 7.113998107910156,
+        "development_loss": 7.319310111999512
+      },
+      {
+        "epoch": 3,
+        "training_loss": 6.871611061096192,
+        "development_loss": 6.762970657348633
+      },
+      {
+        "epoch": 4,
+        "training_loss": 6.720007648468018,
+        "development_loss": 6.495173721313477
+      },
+      {
+        "epoch": 5,
+        "training_loss": 6.633744201660156,
+        "development_loss": 6.413759384155274
+      },
+      {
+        "epoch": 6,
+        "training_loss": 6.531975250244141,
+        "development_loss": 6.370295715332031
+      },
+      {
+        "epoch": 7,
+        "training_loss": 6.496312141418457,
+        "development_loss": 6.336620578765869
+      },
+      {
+        "epoch": 8,
+        "training_loss": 6.434301052093506,
+        "development_loss": 6.30617467880249
+      },
+      {
+        "epoch": 9,
+        "training_loss": 6.391746635437012,
+        "development_loss": 6.307131462097168
+      },
+      {
+        "epoch": 10,
+        "training_loss": 6.3357578468322755,
+        "development_loss": 6.285451259613037
+      },
+      {
+        "epoch": 11,
+        "training_loss": 6.315416412353516,
+        "development_loss": 6.269165363311767
+      },
+      {
+        "epoch": 12,
+        "training_loss": 6.27729736328125,
+        "development_loss": 6.247174015045166
+      },
+      {
+        "epoch": 13,
+        "training_loss": 6.235178146362305,
+        "development_loss": 6.212607498168945
+      },
+      {
+        "epoch": 14,
+        "training_loss": 6.209373989105225,
+        "development_loss": 6.216673984527588
+      },
+      {
+        "epoch": 15,
+        "training_loss": 6.183875942230225,
+        "development_loss": 6.2132173347473145
+      },
+      {
+        "epoch": 16,
+        "training_loss": 6.144463214874268,
+        "development_loss": 6.202264881134033
+      },
+      {
+        "epoch": 17,
+        "training_loss": 6.117213459014892,
+        "development_loss": 6.237816524505615
+      },
+      {
+        "epoch": 18,
+        "training_loss": 6.067491302490234,
+        "development_loss": 6.218378944396973
+      },
+      {
+        "epoch": 19,
+        "training_loss": 6.026550273895264,
+        "development_loss": 6.232279529571533
+      },
+      {
+        "epoch": 20,
+        "training_loss": 5.975130062103272,
+        "development_loss": 6.273599548339844
+      }
+    ]
+  },
+  "training_images": 400,
+  "development_images": 100,
+  "fp32": {
+    "method": "Compact supervised depthwise heatmap encoder/decoder + fixed seedless geometric PnP gate",
+    "runtime": "torch",
+    "checkpoint_sha256": "9947b6e52a8b3d2ab5aa4f04b47beaa255aeef5516b9a8b6c096a4b07f56a594",
+    "parameters": 101803,
+    "no_pose_prior": true,
+    "confidence_calibrated": false,
+    "int8_validated": false,
+    "hardware_verified": false,
+    "groups": {
+      "speedplus/synthetic/validation": {
+        "frames": 40,
+        "estimated": 1,
+        "failed": 39,
+        "position_rms_m": 39.36436232833716,
+        "attitude_rms_deg": 152.9984568804959,
+        "vision_p95_us": 46582.735,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 39.36436232833716
+      },
+      "speedplus/lightbox/test": {
+        "frames": 40,
+        "estimated": 2,
+        "failed": 38,
+        "position_rms_m": 74.8000822153354,
+        "attitude_rms_deg": 152.08744608655553,
+        "vision_p95_us": 46997.005,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 98.30052513561733
+      },
+      "speedplus/sunlamp/test": {
+        "frames": 40,
+        "estimated": 2,
+        "failed": 38,
+        "position_rms_m": 2577.475364517286,
+        "attitude_rms_deg": 158.3576847387506,
+        "vision_p95_us": 47319.275,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 3636.161640645557
+      },
+      "shirt/roe1/lightbox": {
+        "frames": 20,
+        "estimated": 4,
+        "failed": 16,
+        "position_rms_m": 93.30704211448983,
+        "attitude_rms_deg": 148.12599842515417,
+        "vision_p95_us": 52163.39,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 102.72011487257991
+      },
+      "shirt/roe2/lightbox": {
+        "frames": 20,
+        "estimated": 3,
+        "failed": 17,
+        "position_rms_m": 222.78706522807872,
+        "attitude_rms_deg": 107.0469830210815,
+        "vision_p95_us": 50467.695,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 337.6092500213405
+      }
+    },
+    "gnc_output_enabled": false,
+    "packet_policy": "All poses null; unqualified hypotheses retained only in scoring diagnostics."
+  },
+  "int8": {
+    "method": "Compact supervised depthwise heatmap encoder/decoder + fixed seedless geometric PnP gate",
+    "runtime": "int8",
+    "checkpoint_sha256": "9947b6e52a8b3d2ab5aa4f04b47beaa255aeef5516b9a8b6c096a4b07f56a594",
+    "parameters": 101803,
+    "no_pose_prior": true,
+    "confidence_calibrated": false,
+    "gnc_output_enabled": false,
+    "packet_policy": "All poses null until independent perception/integrity qualification; raw PnP hypotheses remain in scored diagnostics only",
+    "int8_validated": false,
+    "hardware_verified": false,
+    "groups": {
+      "speedplus/synthetic/validation": {
+        "frames": 40,
+        "estimated": 0,
+        "failed": 40,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 41387.61499999999,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": null
+      },
+      "speedplus/lightbox/test": {
+        "frames": 40,
+        "estimated": 4,
+        "failed": 36,
+        "position_rms_m": 581.9614388473557,
+        "attitude_rms_deg": 134.97758839707572,
+        "vision_p95_us": 41990.54,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 1143.5482198059979
+      },
+      "speedplus/sunlamp/test": {
+        "frames": 40,
+        "estimated": 3,
+        "failed": 37,
+        "position_rms_m": 858.3509221957306,
+        "attitude_rms_deg": 132.46549288249676,
+        "vision_p95_us": 40956.6,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 1478.7732776251198
+      },
+      "shirt/roe1/lightbox": {
+        "frames": 20,
+        "estimated": 1,
+        "failed": 19,
+        "position_rms_m": 55.85524692019449,
+        "attitude_rms_deg": 163.97872603738458,
+        "vision_p95_us": 43690.715000000004,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 55.85524692019449
+      },
+      "shirt/roe2/lightbox": {
+        "frames": 20,
+        "estimated": 2,
+        "failed": 18,
+        "position_rms_m": 505.3639522688293,
+        "attitude_rms_deg": 126.40710509983944,
+        "vision_p95_us": 53465.7,
+        "hypotheses_within_15cm_8deg": 0,
+        "worst_hypothesis_position_m": 693.4851053542617
+      }
+    }
+  },
+  "export": {
+    "onnxruntime": "1.31.0",
+    "onnx": "1.23.2",
+    "provider": "CPUExecutionProvider",
+    "threads": 4,
+    "calibration_training_images": 32,
+    "development_images": 16,
+    "fp32_max_absolute_logit_difference": 2.8014183044433594e-05,
+    "fp32_bytes": 411016,
+    "int8_bytes": 172440,
+    "int8_development_keypoint_drift_rms_px": 61.10363420609018,
+    "int8_development_keypoint_drift_worst_px": 273.04339870008266,
+    "int8_host_inference_p95_us": 1753.825,
+    "int8_sha256": "7350a35cfb275ad9f4874993e722c7ceac9f3a77f54160fe3f352d303c5b47c7",
+    "hardware_verified": false,
+    "deployment_approved": false,
+    "limitations": "Heatmap drift only; task accuracy and confidence calibration require separate evaluation. Export/INT8 runtime exclude image IO, rectification and PnP."
+  },
+  "deployment_approved": false,
+  "hardware_verified": false
+}
