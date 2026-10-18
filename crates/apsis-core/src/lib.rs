@@ -8,3 +8,5 @@
 pub use apsis_ekf::Filter;
 pub use apsis_math as math;
 pub use apsis_vision as vision;
+
+pub mod navigation;
