@@ -35,7 +35,8 @@ pub fn detect(image: &[u8], camera: Camera) -> Observations {
     }
     for (id, sum) in sums.iter().enumerate() {
         if sum.2 >= 4 {
-            result.points[result.len] = (id, Vector2::new(sum.0 / sum.2 as f64, sum.1 / sum.2 as f64));
+            result.points[result.len] =
+                (id, Vector2::new(sum.0 / sum.2 as f64, sum.1 / sum.2 as f64));
             result.len += 1;
         }
     }
