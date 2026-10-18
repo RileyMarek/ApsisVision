@@ -6,7 +6,7 @@
 #![no_std]
 pub mod guidance;
 
-pub use apsis_ekf::Filter;
+pub use apsis_ekf::{default_measurement_covariance, Filter, PoseCovariance};
 pub use apsis_math as math;
 pub use apsis_vision as vision;
 

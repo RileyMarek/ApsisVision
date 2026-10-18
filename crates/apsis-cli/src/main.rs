@@ -1,6 +1,6 @@
 use apsis_core::math::{landmarks, target, Camera, Pose, Q, V3};
 use apsis_core::navigation::{Navigator, Rejection};
-use apsis_core::vision::{corners, solve_robust};
+use apsis_core::vision::{corners, solve_uncertain};
 use apsis_sim::scene::{self, Conditions};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -114,6 +114,9 @@ struct Tick {
     error: Option<f64>,
     angle: Option<f64>,
     nees_12: Option<f64>,
+    last_nis_6: Option<f64>,
+    measurement_sigma: Option<[f64; 6]>,
+    geometry_condition: Option<f64>,
     fit_rms: Option<f64>,
     vision_us: u128,
     filter_us: u128,
@@ -152,6 +155,7 @@ struct Recording {
 struct Packet {
     captured: f64,
     release: f64,
+    covariance: apsis_core::PoseCovariance,
     pose: Option<Pose>,
     reason: Rejection,
 }
@@ -202,6 +206,8 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
     let mut features = Vec::new();
     let mut matched = Vec::new();
     let mut fit_rms = None;
+    let mut measurement_sigma = None;
+    let mut geometry_condition = None;
     let (mut sum, mut angles, mut scored, mut accepted, mut valid_count, mut camera_frames) =
         (0.0, 0.0, 0, 0, 0, 0);
     let (mut worst, mut worst_angle, mut blackout_worst, mut blackout_angle) =
@@ -253,8 +259,11 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
             features.clear();
             matched.clear();
             fit_rms = None;
+            measurement_sigma = None;
+            geometry_condition = None;
             let start = Instant::now();
             let prior = nav.filter.as_ref().map(|f| &f.pose).unwrap_or(&seed);
+            let mut measurement_covariance = apsis_core::default_measurement_covariance();
             let (pose, reason) = if available {
                 let detected = corners::detect(&image.gray, calibrated);
                 features = detected.iter().map(|f| [f.pixel.x, f.pixel.y]).collect();
@@ -285,10 +294,15 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                     (None, Rejection::Features)
                 } else if matches.len() < 6 {
                     (None, Rejection::Association)
-                } else if let Some((p, rms)) =
-                    solve_robust(calibrated, &landmarks(), &matches, prior)
+                } else if let Some((p, rms, uncertainty)) =
+                    solve_uncertain(calibrated, &landmarks(), &matches, prior, 1.0)
                 {
                     fit_rms = Some(rms);
+                    measurement_covariance += uncertainty.covariance;
+                    measurement_sigma = Some(std::array::from_fn(|i| {
+                        measurement_covariance[(i, i)].sqrt()
+                    }));
+                    geometry_condition = Some(uncertainty.condition);
                     matched.retain(|m| {
                         calibrated
                             .project(p.transform(landmarks()[m[0] as usize]))
@@ -320,6 +334,7 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                 captured: t,
                 release: t + config.delay_ms / 1000.0,
                 pose,
+                covariance: measurement_covariance,
                 reason,
             });
         }
@@ -328,7 +343,12 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
         let update_start = Instant::now();
         while packets.front().is_some_and(|p| p.release <= t + 1e-9) {
             let packet = packets.pop_front().unwrap();
-            used |= nav.observe(packet.captured, packet.pose.as_ref(), packet.reason);
+            used |= nav.observe_with_covariance(
+                packet.captured,
+                packet.pose.as_ref(),
+                &packet.covariance,
+                packet.reason,
+            );
         }
         filter_us += update_start.elapsed().as_micros();
         filter_times.push(filter_us);
@@ -363,6 +383,9 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
             error: None,
             angle: None,
             nees_12: None,
+            last_nis_6: nav.filter.as_ref().and_then(|f| f.last_nis),
+            measurement_sigma,
+            geometry_condition,
             fit_rms,
             vision_us,
             filter_us,
@@ -479,7 +502,7 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
                 .replace("__RECORDING__", &json),
         )?;
     }
-    let mut csv=String::from("time_s,capture_s,state,valid,measurement_age_s,rejection,accepted,camera_available,x_m,y_m,z_m,vx_m_s,vy_m_s,vz_m_s,wx_rad_s,wy_rad_s,wz_rad_s,position_error_m,attitude_error_deg,vision_us,filter_us,sigma_px_m,sigma_py_m,sigma_pz_m,sigma_vx_m_s,sigma_vy_m_s,sigma_vz_m_s,sigma_theta_x_rad,sigma_theta_y_rad,sigma_theta_z_rad,sigma_wx_rad_s,sigma_wy_rad_s,sigma_wz_rad_s,qw,qx,qy,qz\n");
+    let mut csv=String::from("time_s,capture_s,state,valid,measurement_age_s,rejection,accepted,camera_available,x_m,y_m,z_m,vx_m_s,vy_m_s,vz_m_s,wx_rad_s,wy_rad_s,wz_rad_s,position_error_m,attitude_error_deg,vision_us,filter_us,sigma_px_m,sigma_py_m,sigma_pz_m,sigma_vx_m_s,sigma_vy_m_s,sigma_vz_m_s,sigma_theta_x_rad,sigma_theta_y_rad,sigma_theta_z_rad,sigma_wx_rad_s,sigma_wy_rad_s,sigma_wz_rad_s,qw,qx,qy,qz,nees_12,last_nis_6,geometry_condition,measurement_sigma_x_m,measurement_sigma_y_m,measurement_sigma_z_m,measurement_sigma_rx_rad,measurement_sigma_ry_rad,measurement_sigma_rz_rad\n");
     for f in &recording.frames {
         let mut row = vec![
             f.t.to_string(),
@@ -500,6 +523,15 @@ fn run(config: Config, out: PathBuf) -> Result<Recording, Box<dyn Error>> {
         row.push(f.filter_us.to_string());
         row.extend((0..12).map(|i| f.sigma.map(|a| a[i].to_string()).unwrap_or_default()));
         row.extend((0..4).map(|i| f.q.map(|a| a[i].to_string()).unwrap_or_default()));
+        row.extend(
+            [f.nees_12, f.last_nis_6, f.geometry_condition]
+                .map(|v| v.map(|x| x.to_string()).unwrap_or_default()),
+        );
+        row.extend((0..6).map(|i| {
+            f.measurement_sigma
+                .map(|a| a[i].to_string())
+                .unwrap_or_default()
+        }));
         csv.push_str(&row.join(","));
         csv.push('\n');
     }
@@ -580,7 +612,12 @@ mod tests {
             let path =
                 std::env::temp_dir().join(format!("apsis-integrity-{name}-{}", std::process::id()));
             let r = run(config, path).unwrap();
-            assert!(r.frames.iter().any(|f| f.reason == "unsupported_boundary"));
+            // Weighting can prevent a bad fit reaching the boundary check at all.
+            // Keep the behavior guards below: nonzero availability and bounded valid error.
+            assert!(r.frames.iter().any(|f| matches!(
+                f.reason,
+                "unsupported_boundary" | "innovation_gate" | "pose_fit_failed"
+            )));
             let valid: Vec<_> = r.frames.iter().filter(|f| f.valid).collect();
             assert!(
                 !valid.is_empty(),

@@ -23,6 +23,8 @@ struct Packet {
     captured_s: f64,
     delivered_s: f64,
     pose: Option<Observation>,
+    #[serde(default)]
+    covariance_6: Option<[[f64; 6]; 6]>,
 }
 
 fn decode(line: &[u8]) -> Result<Packet, Box<dyn Error>> {
@@ -45,6 +47,15 @@ fn decode(line: &[u8]) -> Result<Packet, Box<dyn Error>> {
             || o.position_m[2] <= 0.0
         {
             return Err("invalid camera pose or non-unit quaternion".into());
+        }
+    }
+    if let Some(values) = p.covariance_6 {
+        let r = apsis_core::PoseCovariance::from_fn(|i, j| values[i][j]);
+        if !r.iter().all(|v| v.is_finite())
+            || (r - r.transpose()).amax() > 1e-10
+            || r.cholesky().is_none()
+        {
+            return Err("invalid pose covariance".into());
         }
     }
     Ok(p)
@@ -119,7 +130,16 @@ fn replay(reader: impl BufRead, paced: bool) -> Result<serde_json::Value, Box<dy
                 attitude: Q::new_normalize(apsis_core::math::Quaternion::new(w, x, y, z)),
             }
         });
-        accepted += usize::from(nav.observe(p.captured_s, pose.as_ref(), Rejection::NoImage));
+        let covariance = p
+            .covariance_6
+            .map(|r| apsis_core::PoseCovariance::from_fn(|i, j| r[i][j]))
+            .unwrap_or_else(apsis_core::default_measurement_covariance);
+        accepted += usize::from(nav.observe_with_covariance(
+            p.captured_s,
+            pose.as_ref(),
+            &covariance,
+            Rejection::NoImage,
+        ));
         let h = nav.health();
         valid += usize::from(h.valid);
         late += usize::from(h.rejection == Rejection::Stale);
@@ -188,6 +208,8 @@ mod tests {
     #[test]
     fn corrupt_nonunit_oversize_and_reversed_delivery_stop_the_stream() {
         assert!(decode(b"{}").is_err());
+        let invalid = serde_json::json!({"captured_s":0.0,"delivered_s":0.0,"pose":null,"covariance_6":vec![vec![0;6];6]});
+        assert!(decode(serde_json::to_string(&invalid).unwrap().as_bytes()).is_err());
         assert!(decode(packet(1.0, 0.0, true).as_bytes()).is_err());
         assert!(decode(
             packet(0.0, 0.0, true)

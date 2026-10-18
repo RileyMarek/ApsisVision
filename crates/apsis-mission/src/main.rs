@@ -3,7 +3,7 @@ use apsis_core::{
     guidance::{Guidance, Input, Mode},
     math::{landmarks, target, Camera, Pose, Q, V3},
     navigation::{Navigator, Rejection},
-    vision::{corners, silhouette, solve_robust},
+    vision::{corners, silhouette, solve_uncertain},
 };
 use apsis_sim::{
     dynamics::{contact_acceleration, RelativeState, RigidBody},
@@ -62,6 +62,7 @@ fn run(
             .map_err(|r| format!("predict: {}", r.label()))?;
         if tick % 5 == 0 {
             let unavailable = outage.is_some_and(|start| (start..start + 3.0).contains(&t));
+            let mut covariance = apsis_core::default_measurement_covariance();
             let measurement = if unavailable {
                 None
             } else if pixels {
@@ -70,9 +71,12 @@ fn run(
                 let features = corners::detect(&image.gray, camera);
                 let prior = nav.filter.as_ref().map(|f| &f.pose).unwrap_or(&fixed_prior);
                 let matches = corners::associate(camera, &landmarks(), &features, prior, 20.0);
-                solve_robust(camera, &landmarks(), &matches, prior).and_then(|(p, _)| {
-                    silhouette::verify(&image.gray, camera, &target(), &p).map(|_| p)
-                })
+                solve_uncertain(camera, &landmarks(), &matches, prior, 1.0).and_then(
+                    |(p, _, uncertainty)| {
+                        covariance += uncertainty.covariance;
+                        silhouette::verify(&image.gray, camera, &target(), &p).map(|_| p)
+                    },
+                )
             } else {
                 // A declared stochastic pose sensor, not camera-derived evidence.
                 let mut p = truth.clone();
@@ -82,9 +86,10 @@ fn run(
                 ) * p.attitude;
                 Some(p)
             };
-            if nav.observe(
+            if nav.observe_with_covariance(
                 t,
                 measurement.as_ref(),
+                &covariance,
                 if unavailable {
                     Rejection::NoImage
                 } else {

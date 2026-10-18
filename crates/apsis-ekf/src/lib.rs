@@ -1,6 +1,15 @@
 //! Multiplicative error-state EKF: [position, velocity, attitude error, angular rate].
 #![no_std]
 use apsis_math::{Pose, SMatrix, SVector, Q, V3};
+pub type PoseCovariance = SMatrix<f64, 6, 6>;
+pub fn default_measurement_covariance() -> PoseCovariance {
+    PoseCovariance::from_diagonal(&SVector::<f64, 6>::new(
+        0.000025, 0.000025, 0.000025, 0.0004, 0.0004, 0.0004,
+    ))
+}
+fn valid_covariance(r: &PoseCovariance) -> bool {
+    r.iter().all(|v| v.is_finite()) && (r - r.transpose()).amax() < 1e-10 && r.cholesky().is_some()
+}
 type M12 = SMatrix<f64, 12, 12>;
 
 #[derive(Clone)]
@@ -9,6 +18,10 @@ pub struct Filter {
     pub velocity: V3,
     pub rate: V3,
     pub covariance: M12,
+    /// Most recent attempted innovation statistic; absent for malformed input.
+    pub last_nis: Option<f64>,
+    linear_psd: f64,
+    angular_psd: f64,
 }
 impl Filter {
     pub fn new(pose: Pose) -> Self {
@@ -17,7 +30,35 @@ impl Filter {
             velocity: V3::zeros(),
             rate: V3::zeros(),
             covariance: M12::identity() * 0.1,
+            last_nis: None,
+            linear_psd: 0.0004,
+            angular_psd: 0.0004,
         }
+    }
+    /// Initialize observed pose blocks and their position/attitude correlation from R.
+    /// Velocity and rate retain the independent 0.1 prior variances.
+    pub fn new_with_covariance(pose: Pose, r: &PoseCovariance) -> Option<Self> {
+        if !valid_covariance(r) {
+            return None;
+        }
+        let mut f = Self::new(pose);
+        for i in 0..6 {
+            for j in 0..6 {
+                let a = if i < 3 { i } else { i + 3 };
+                let b = if j < 3 { j } else { j + 3 };
+                f.covariance[(a, b)] = r[(i, j)];
+            }
+        }
+        f.finite().then_some(f)
+    }
+    /// Continuous white acceleration PSDs: m^2/s^3 and rad^2/s^3. No automatic truth tuning.
+    pub fn set_process_noise(&mut self, linear: f64, angular: f64) -> bool {
+        if !linear.is_finite() || !angular.is_finite() || linear < 0.0 || angular < 0.0 {
+            return false;
+        }
+        self.linear_psd = linear;
+        self.angular_psd = angular;
+        true
     }
     pub fn predict(&mut self, dt: f64) -> bool {
         if !dt.is_finite() || dt <= 0.0 || dt > 10.0 {
@@ -46,10 +87,15 @@ impl Filter {
             for base in [0, 6] {
                 let p = k + base;
                 let v = p + 3;
-                process[(p, p)] = 0.0004 * dt * dt * dt / 3.0;
-                process[(p, v)] = 0.0004 * dt * dt / 2.0;
+                let psd = if base == 0 {
+                    self.linear_psd
+                } else {
+                    self.angular_psd
+                };
+                process[(p, p)] = psd * dt * dt * dt / 3.0;
+                process[(p, v)] = psd * dt * dt / 2.0;
                 process[(v, p)] = process[(p, v)];
-                process[(v, v)] = 0.0004 * dt;
+                process[(v, v)] = psd * dt;
             }
         }
         self.covariance = f * self.covariance * f.transpose() + process;
@@ -75,6 +121,18 @@ impl Filter {
     }
     /// Conservative reacquisition weighting; a scale >=1 inflates measurement covariance.
     pub fn update_with_noise_scale(&mut self, measured: &Pose, noise_scale: f64) -> bool {
+        self.update_with_covariance(measured, &default_measurement_covariance(), noise_scale)
+    }
+    pub fn update_with_covariance(
+        &mut self,
+        measured: &Pose,
+        covariance: &PoseCovariance,
+        noise_scale: f64,
+    ) -> bool {
+        self.last_nis = None;
+        if !valid_covariance(covariance) {
+            return false;
+        }
         if !noise_scale.is_finite() || noise_scale < 1.0 {
             return false;
         }
@@ -97,14 +155,13 @@ impl Filter {
             h[(k, k)] = 1.0;
             h[(k + 3, k + 6)] = 1.0;
         }
-        let r = SMatrix::<f64, 6, 6>::from_diagonal(&SVector::<f64, 6>::new(
-            0.000025, 0.000025, 0.000025, 0.0004, 0.0004, 0.0004,
-        )) * noise_scale;
+        let r = covariance * noise_scale;
         let s = h * self.covariance * h.transpose() + r;
         let Some(chol) = s.cholesky() else {
             return false;
         };
         let distance = innovation.dot(&chol.solve(&innovation));
+        self.last_nis = Some(distance);
         if !distance.is_finite() || distance > 22.46 {
             return false;
         }
@@ -142,6 +199,37 @@ impl Filter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn full_covariance_controls_gain_and_nis_and_invalid_noise_is_atomic() {
+        let pose = Pose {
+            position: V3::new(0.0, 0.0, 2.0),
+            attitude: Q::identity(),
+        };
+        let r = default_measurement_covariance();
+        let mut narrow = Filter::new_with_covariance(pose.clone(), &r).unwrap();
+        let mut broad = narrow.clone();
+        let mut measurement = pose.clone();
+        measurement.position.x += 0.01;
+        assert!(narrow.update_with_covariance(&measurement, &r, 1.0));
+        assert!(broad.update_with_covariance(&measurement, &(r * 100.0), 1.0));
+        assert!(narrow.pose.position.x > broad.pose.position.x * 10.0);
+        assert!(narrow.last_nis.unwrap() > broad.last_nis.unwrap() * 10.0);
+        let before = narrow.clone();
+        let mut invalid = r;
+        invalid[(0, 0)] = -1.0;
+        assert!(!narrow.update_with_covariance(&measurement, &invalid, 1.0));
+        assert_eq!(narrow.pose.position, before.pose.position);
+        assert_eq!(narrow.covariance, before.covariance);
+        invalid = r;
+        invalid[(0, 1)] = 0.01;
+        assert!(Filter::new_with_covariance(pose.clone(), &invalid).is_none());
+        assert!(!narrow.set_process_noise(f64::NAN, 0.1));
+        let mut correlated = r;
+        correlated[(0, 3)] = 0.00001;
+        correlated[(3, 0)] = 0.00001;
+        let initialized = Filter::new_with_covariance(pose, &correlated).unwrap();
+        assert_eq!(initialized.covariance[(0, 6)], correlated[(0, 3)]);
+    }
     #[test]
     fn covariance_matches_elapsed_time_and_invalid_prediction_is_atomic() {
         let mut once = Filter::new(Pose {
