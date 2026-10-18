@@ -42,6 +42,16 @@ No camera dataset is available yet. The next data milestone is a public benchmar
 with calibration and pose ground truth. Dataset-specific adapters and real-image
 features are needed before evaluating the current synthetic marker pipeline on it.
 
+Start with [Stanford SLAB's SPEED+ and SHIRT datasets](https://slab.stanford.edu/projects/datasets):
+SPEED+ provides synthetic and hardware-in-the-loop spacecraft images for evaluating
+pose estimation across an imaging domain gap; its lighting domains include lightbox
+and sunlamp imagery. SHIRT provides sequential rendezvous imagery, making it a better
+fit for assessing temporal filtering and tracking. These are ground-based/simulated
+benchmarks, not a substitute for on-orbit validation. First verify dataset terms,
+calibration, pose labels, quaternion conventions, and available timestamps; keep
+tuning sequences separate from evaluation sequences. Report acquisition/loss rates,
+position and attitude error distributions, and latency, including failures.
+
 Once hardware is available, measure the CPU implementation first. Add programmable-
 logic acceleration only for measured bottlenecks, after establishing a trusted CPU
 reference.
