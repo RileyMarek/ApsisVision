@@ -133,3 +133,8 @@ landmark inference, FP32 ONNX export and static INT8 characterization. Its first
 400-train / 100-development experiment fails the held-out pose audit; all learned
 replay poses are null. Raw scored hypotheses are diagnostics, not GNC measurements.
 See [measured results and reproduction](adaptive-perception.md).
+
+The [latest analytic-visibility experiment](visual-admission.md) adds masked supervision,
+an explicit tapered-bus proxy, global heatmap moments and independent pixel admission.
+Its checkpoint remains quarantined. The original model's 12 raw hypotheses reduce
+to one under the all-correspondence gate; that remaining hypothesis is still wrong.

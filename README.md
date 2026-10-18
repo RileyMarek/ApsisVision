@@ -9,10 +9,10 @@ The desktop demo makes tracking—and its failures—visible.
 Research prototype. A separate software-in-loop guidance reference is available;
 hardware actuation and flight qualification remain outside the evidence.
 
-**Current gate: not mission-ready.** Adaptive pose covariance improves paired tests
-but still fails an independent 128-trial integrity campaign. ORB and the first learned
-landmark model do not provide dependable poses. See the
-[latest measured results](docs/adaptive-perception.md) and [baseline readiness](docs/readiness.md).
+**Current gate: not mission-ready.** Hard visual admission and symmetry checks reduce
+false-valid output, but acquisition coverage remains very low across the proposed
+envelope. The analytic-visibility landmark model is still unqualified. See
+[latest measured results](docs/visual-admission.md) and [baseline readiness](docs/readiness.md).
 
 ## Run the demo
 
@@ -66,13 +66,16 @@ See the [scenario evidence](docs/scenarios.md) for results and limits.
 ## Pipeline
 
 ```text
-Shaded camera raster → Harris corners → association → PnP + covariance → boundary verification
-                    → multiplicative error-state EKF → health + telemetry
+Shaded image → corners → matches → PnP → visual admission
+             → geometry-dependent covariance → EKF → health + telemetry
 ```
 
 The camera runs at a simulated 10 Hz; navigation propagates at 50 Hz.
 The default recording lasts 20 seconds, including an 8–11 s blackout.
 Simulation truth is used for rendering and scoring, never estimator updates.
+Unweighted visual checks run before covariance and NIS. Ambiguous geometry and
+unsupported image evidence latch an integrity hold. These checks are specific to
+the known demo target; they do not establish general satellite recognition.
 
 | Crate | Purpose |
 | --- | --- |

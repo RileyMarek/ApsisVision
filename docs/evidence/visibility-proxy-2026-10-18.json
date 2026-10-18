@@ -1,0 +1,320 @@
+{
+  "scope": "User-authorized analytic tapered-bus proxy, not verified full CAD visibility",
+  "training": {
+    "seed": 1729,
+    "epochs": 20,
+    "parameters": 102342,
+    "visibility_supervised": true,
+    "visibility_source_sha256": "97c5a96e70487083b63f4dd42993e1212a31e10b9f4778db9016c158df05db60",
+    "best_development_loss": 6.680286407470703,
+    "history": [
+      {
+        "epoch": 1,
+        "training_loss": 8.402083110809325,
+        "development_loss": 8.567404403686524
+      },
+      {
+        "epoch": 2,
+        "training_loss": 7.785780048370361,
+        "development_loss": 7.7242601776123045
+      },
+      {
+        "epoch": 3,
+        "training_loss": 7.475127429962158,
+        "development_loss": 7.190218257904053
+      },
+      {
+        "epoch": 4,
+        "training_loss": 7.302147388458252,
+        "development_loss": 6.997445125579834
+      },
+      {
+        "epoch": 5,
+        "training_loss": 7.179233531951905,
+        "development_loss": 6.863777408599853
+      },
+      {
+        "epoch": 6,
+        "training_loss": 7.082976875305175,
+        "development_loss": 6.840531101226807
+      },
+      {
+        "epoch": 7,
+        "training_loss": 7.049172554016113,
+        "development_loss": 6.8321435546875
+      },
+      {
+        "epoch": 8,
+        "training_loss": 7.025125560760498,
+        "development_loss": 6.803763732910157
+      },
+      {
+        "epoch": 9,
+        "training_loss": 6.956203536987305,
+        "development_loss": 6.782385311126709
+      },
+      {
+        "epoch": 10,
+        "training_loss": 6.923414058685303,
+        "development_loss": 6.756001243591308
+      },
+      {
+        "epoch": 11,
+        "training_loss": 6.8750396156311036,
+        "development_loss": 6.73790828704834
+      },
+      {
+        "epoch": 12,
+        "training_loss": 6.840268955230713,
+        "development_loss": 6.74484395980835
+      },
+      {
+        "epoch": 13,
+        "training_loss": 6.757808723449707,
+        "development_loss": 6.70929183959961
+      },
+      {
+        "epoch": 14,
+        "training_loss": 6.787010459899903,
+        "development_loss": 6.690716476440429
+      },
+      {
+        "epoch": 15,
+        "training_loss": 6.740620231628418,
+        "development_loss": 6.724698677062988
+      },
+      {
+        "epoch": 16,
+        "training_loss": 6.7142055892944335,
+        "development_loss": 6.693137969970703
+      },
+      {
+        "epoch": 17,
+        "training_loss": 6.670936660766602,
+        "development_loss": 6.6807716369628904
+      },
+      {
+        "epoch": 18,
+        "training_loss": 6.617257061004639,
+        "development_loss": 6.680286407470703
+      },
+      {
+        "epoch": 19,
+        "training_loss": 6.6154939079284665,
+        "development_loss": 6.681687297821045
+      },
+      {
+        "epoch": 20,
+        "training_loss": 6.578760795593261,
+        "development_loss": 6.725717449188233
+      }
+    ],
+    "elapsed_s": 203.1400947000002
+  },
+  "training_images": 400,
+  "development_images": 100,
+  "proxy_checkpoint_sha256": "6e92d9514e0be27c1edb3c7c142d6113015eff6d2f705e5028f98eb904aa710c",
+  "proxy_audit": {
+    "method": "Compact supervised depthwise heatmap encoder/decoder + fixed seedless geometric PnP gate",
+    "runtime": "torch",
+    "checkpoint_sha256": "6e92d9514e0be27c1edb3c7c142d6113015eff6d2f705e5028f98eb904aa710c",
+    "parameters": 102342,
+    "no_pose_prior": true,
+    "confidence_calibrated": false,
+    "gnc_output_enabled": false,
+    "packet_policy": "All poses null until independent perception/integrity qualification; raw PnP hypotheses remain in scored diagnostics only",
+    "int8_validated": false,
+    "hardware_verified": false,
+    "groups": {
+      "speedplus/synthetic/validation": {
+        "frames": 40,
+        "estimated": 0,
+        "failed": 40,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 11833.855
+      },
+      "speedplus/lightbox/test": {
+        "frames": 40,
+        "estimated": 0,
+        "failed": 40,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 15281.12
+      },
+      "speedplus/sunlamp/test": {
+        "frames": 40,
+        "estimated": 0,
+        "failed": 40,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 12184.629999999997
+      },
+      "shirt/roe1/lightbox": {
+        "frames": 20,
+        "estimated": 0,
+        "failed": 20,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 10860.27
+      },
+      "shirt/roe2/lightbox": {
+        "frames": 20,
+        "estimated": 0,
+        "failed": 20,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 11627.795
+      }
+    }
+  },
+  "proxy_development": {
+    "scope": "Development analytic-proxy labels only; no verified real visibility labels or hardware evidence",
+    "images": 100,
+    "known_landmarks": 1100,
+    "visibility_accuracy": 0.8381818181818181,
+    "visibility_precision": 0.8381818181818181,
+    "visibility_recall": 1.0,
+    "geometrically_visible_landmarks": 922,
+    "visible_keypoint_rms_model_input_px": 43.347973214353395,
+    "mean_keypoints_passing_visibility_and_spread": 0.0,
+    "confidence_calibrated": false,
+    "deployment_approved": false,
+    "labels_sha256": "97c5a96e70487083b63f4dd42993e1212a31e10b9f4778db9016c158df05db60"
+  },
+  "old_checkpoint_under_new_pixel_gate": {
+    "method": "Compact supervised depthwise heatmap encoder/decoder + fixed seedless geometric PnP gate",
+    "runtime": "torch",
+    "checkpoint_sha256": "9947b6e52a8b3d2ab5aa4f04b47beaa255aeef5516b9a8b6c096a4b07f56a594",
+    "parameters": 101803,
+    "no_pose_prior": true,
+    "confidence_calibrated": false,
+    "gnc_output_enabled": false,
+    "packet_policy": "All poses null until independent perception/integrity qualification; raw PnP hypotheses remain in scored diagnostics only",
+    "int8_validated": false,
+    "hardware_verified": false,
+    "groups": {
+      "speedplus/synthetic/validation": {
+        "frames": 40,
+        "estimated": 0,
+        "failed": 40,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 74002.07500000001
+      },
+      "speedplus/lightbox/test": {
+        "frames": 40,
+        "estimated": 0,
+        "failed": 40,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 76909.30999999998
+      },
+      "speedplus/sunlamp/test": {
+        "frames": 40,
+        "estimated": 0,
+        "failed": 40,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 73286.355
+      },
+      "shirt/roe1/lightbox": {
+        "frames": 20,
+        "estimated": 1,
+        "failed": 19,
+        "position_rms_m": 101.50429692295924,
+        "attitude_rms_deg": 167.86807538386896,
+        "vision_p95_us": 59524.615000000005
+      },
+      "shirt/roe2/lightbox": {
+        "frames": 20,
+        "estimated": 0,
+        "failed": 20,
+        "position_rms_m": null,
+        "attitude_rms_deg": null,
+        "vision_p95_us": 56318.275
+      }
+    }
+  },
+  "encoder_only_quantization": {
+    "onnxruntime": "1.31.0",
+    "onnx": "1.23.2",
+    "provider": "CPUExecutionProvider",
+    "precision_scope": "encoder Conv INT8; decoder and heatmap head FP32",
+    "quantized_conv_nodes": [
+      "/stem/stem.0/Conv",
+      "/s2/s2.0/s2.0.0/Conv",
+      "/s2/s2.0/s2.0.3/Conv",
+      "/s2/s2.1/s2.1.0/Conv",
+      "/s2/s2.1/s2.1.3/Conv",
+      "/s3/s3.0/s3.0.0/Conv",
+      "/s3/s3.0/s3.0.3/Conv",
+      "/s3/s3.1/s3.1.0/Conv",
+      "/s3/s3.1/s3.1.3/Conv",
+      "/s4/s4.0/s4.0.0/Conv",
+      "/s4/s4.0/s4.0.3/Conv",
+      "/s4/s4.1/s4.1.0/Conv",
+      "/s4/s4.1/s4.1.3/Conv",
+      "/s5/s5.0/s5.0.0/Conv",
+      "/s5/s5.0/s5.0.3/Conv",
+      "/s5/s5.1/s5.1.0/Conv",
+      "/s5/s5.1/s5.1.3/Conv"
+    ],
+    "threads": 4,
+    "calibration_training_images": 32,
+    "development_images": 16,
+    "fp32_max_absolute_logit_difference": 2.8014183044433594e-05,
+    "fp32_bytes": 411016,
+    "int8_bytes": 288557,
+    "int8_development_keypoint_drift_rms_px": 76.3976401616129,
+    "int8_development_keypoint_drift_worst_px": 343.0805398411041,
+    "int8_host_inference_p95_us": 1625.225,
+    "int8_sha256": "7e44bc01038a977fbb5eca2dfd566b603d8363bd933e9cf4604b38b531136ddf",
+    "hardware_verified": false,
+    "deployment_approved": false,
+    "limitations": "Heatmap drift only; task accuracy and confidence calibration require separate evaluation. Export/INT8 runtime exclude image IO, rectification and PnP."
+  },
+  "nominal_demo": {
+    "position_rms_m": 0.01791669796092382,
+    "attitude_rms_deg": 0.5892212518243927,
+    "worst_position_m": 0.04118461793341906,
+    "worst_attitude_deg": 2.5053986291864616,
+    "blackout_worst_position_m": 0.04118461793341906,
+    "blackout_worst_attitude_deg": 0.7226415740997754,
+    "recovery_s": 0.5,
+    "optical_return_s": 0.0,
+    "reacquisition_jump_m": 0.029849005464372306,
+    "reacquisition_jump_deg": 0.6688221021466457,
+    "accepted": 158,
+    "camera_frames": 200,
+    "valid_fraction": 0.751,
+    "vision_p50_us": 5720,
+    "vision_p95_us": 6280,
+    "vision_p99_us": 7492,
+    "filter_p95_us": 8,
+    "filter_bytes": 1288,
+    "navigator_bytes": 1424
+  },
+  "early_outage_demo": {
+    "position_rms_m": 0.015247735579592612,
+    "attitude_rms_deg": 0.7494536674063283,
+    "worst_position_m": 0.037689416785795904,
+    "worst_attitude_deg": 2.5053986291864616,
+    "blackout_worst_position_m": 0.013742346156470521,
+    "blackout_worst_attitude_deg": 1.501288862714101,
+    "recovery_s": 0.6000000000000005,
+    "optical_return_s": 0.10000000000000053,
+    "reacquisition_jump_m": 0.00473488981251584,
+    "reacquisition_jump_deg": 1.4795166620203204,
+    "accepted": 145,
+    "camera_frames": 200,
+    "valid_fraction": 0.745,
+    "vision_p50_us": 5689,
+    "vision_p95_us": 6141,
+    "vision_p99_us": 6819,
+    "filter_p95_us": 7,
+    "filter_bytes": 1288,
+    "navigator_bytes": 1424
+  },
+  "deployment_approved": false
+}

@@ -1,7 +1,8 @@
 # Integration and validation roadmap
 
-Latest evidence: [adaptive covariance and learned perception](adaptive-perception.md).
-Both the independent integrity campaign and learned landmark audit still fail.
+Latest evidence: [visual admission and analytic visibility](visual-admission.md).
+The independent campaign still fails overall qualification, especially availability;
+the proxy-supervised landmark checkpoint also remains unqualified.
 
 The first intended evaluator is a spacecraft GNC engineer. Priorities are reliable,
 accurate relative navigation under difficult space imaging conditions, followed by

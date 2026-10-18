@@ -1,5 +1,9 @@
 # Adaptive covariance and learned perception: measured follow-up
 
+Historical experiment at `74c839d`. The latest
+[visual-admission and analytic-visibility results](visual-admission.md) add independent
+pixel/mode gates and a failed proxy-supervised checkpoint.
+
 **Status: research increment; integrity and perception gates still fail.**
 This follows the [original readiness report](readiness.md), baseline commit `f1cfa92`.
 
