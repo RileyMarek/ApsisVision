@@ -2,7 +2,7 @@
 use apsis_core::{
     math::{landmarks, Camera, Pose, Q, V3},
     navigation::{Navigator, Rejection},
-    vision::{corners, solve_robust},
+    vision::{corners, silhouette, solve_robust},
     Filter,
 };
 fn workload() {
@@ -20,7 +20,20 @@ fn workload() {
     };
     let points = landmarks().map(|p| camera.project(pose.transform(p)).unwrap());
     let points: [_; 12] = core::array::from_fn(|i| (i, points[i]));
+    let boundary = [
+        V3::new(-0.5, -0.5, 0.0),
+        V3::new(0.5, -0.5, 0.0),
+        V3::new(0.5, 0.5, 0.0),
+        V3::new(-0.5, 0.5, 0.0),
+    ];
     for i in 0..200 {
+        assert!(std::hint::black_box(silhouette::verify(
+            std::hint::black_box(&pixels),
+            camera,
+            &boundary,
+            &pose,
+        ))
+        .is_some());
         let features = corners::detect(std::hint::black_box(&pixels), camera);
         std::hint::black_box(corners::associate(
             camera,

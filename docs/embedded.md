@@ -21,7 +21,8 @@ python scripts/embedded_evidence.py
 ```
 
 The first command measures persistent type sizes and executes corner detection,
-association, PnP, and filtering on a host thread requesting a 128 KiB stack.
+association, PnP, convex-boundary verification, and filtering on a host thread
+requesting a 128 KiB stack.
 The workload uses fixed arrays. Thread creation and printing belong to the host
 harness, not the core. The OS may round the request; successful completion is a
 stack-budget smoke test, not a measured high-water mark or worst-case guarantee.

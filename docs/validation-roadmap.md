@@ -19,9 +19,9 @@ are available. These establish a baseline, not mission reliability. See
 [demo contract](demo.md), [benchmarking](benchmarking.md), and [embedded evidence](embedded.md).
 
 A shared seven-case suite now records three-seed synthetic failure evidence, with
-separate contract and tracking guards. It exposes an important integrity gap:
-false correspondences can produce large position errors while health remains
-GNC-valid. Occlusion can also prevent acquisition entirely. See the
+separate contract and tracking guards. A convex-body image check and latched
+recovery now reduce the seeded clutter false-valid error from 86.6 cm to 10.8 cm, but calibration seed 43 still reaches
+22.27 cm while GNC-valid. Occlusion can also prevent acquisition entirely. See the
 [scenario characterization](scenarios.md); resolving these gaps takes priority
 over expanding accuracy or robustness claims.
 

@@ -17,13 +17,20 @@ hosted service. Node/Prettier is used only for development formatting checks.
 `output/index.html` also supports offline playback. Keep its `frames/` directory
 alongside it. Interactive scenario controls require the local server.
 
-The desktop console uses the viewport; narrow screens stack the panels. The health
-strip shows the entire recording, with dim segments for GNC-invalid estimates.
-Arrow buttons pause and seek to the next or previous recorded camera, health, or
-validity change. The transport slider remains available for arbitrary timestamps.
-Expand the 12-D uncertainty row to inspect every marginal standard deviation;
-short screens scroll when that detail is open. Failure presets change the sliders;
-press **Run scenario** to recompute. **Baseline** also restores the 8–11 s outage.
+The three open views occupy the desktop workspace. **Scenario lab** opens a modal
+bottom drawer with failure controls, run evidence, and CSV/JSON exports; Escape
+closes it and restores focus. Narrow screens stack the views. The orbital curves
+and glow are viewer decoration; they never enter camera pixels or navigation.
+Camera panes show a centered crop to use the available height, with aligned
+vision overlays. **Full frame** switches both panes to the complete sensor view.
+Exported PNGs always retain the complete 640×480 frame.
+
+The health strip covers the recording, with dim segments for GNC-invalid estimates.
+Arrow buttons pause and seek to recorded camera, health, or validity changes.
+Seeking with the transport slider also pauses. Expand the 12-D uncertainty row to
+inspect every marginal; short screens scroll when that detail is open.
+Failure presets change the sliders; **Run scenario** recomputes the pipeline.
+**Baseline** also restores the 8–11 s outage.
 
 The simulation pane deliberately shows truth during outages. The camera pane
 shows no optical data while unavailable; its dashed wireframe is the EKF prediction.
@@ -66,10 +73,10 @@ Default policy:
 
 | State | Condition | GNC-valid? |
 | --- | --- | --- |
-| Acquiring | No pose yet, fewer than three accepted poses, or 0.5 s reacquisition ramp | No |
+| Acquiring | Fewer than three accepted poses since startup/recovery, or a 0.5 s recovery window | No |
 | Tracking | Last accepted pose age <= 0.15 s, bounded position covariance | Yes |
 | Coasting | Age > 0.15 s and <= 3.5 s, bounded position covariance | Only while age <= 0.5 s |
-| Lost | Age > 3.5 s, numerical fault, or any position sigma > 0.5 m | No |
+| Lost | Integrity hold, age > 3.5 s, numerical fault, or position sigma > 0.5 m | No |
 
 Measurements older than 25 ms at delivery, duplicates, out-of-order capture times,
 future timestamps, nonfinite poses, failed fits, and large innovations are rejected.
@@ -83,6 +90,26 @@ inflated by 4x and returns to baseline over 0.5 s. This weighting affects the re
 filter; there is no cosmetic pose smoothing in the viewer. Optical-return time,
 first optical correction, and time until GNC-valid again are reported separately.
 These tuned choices and covariance limits require mission-specific validation.
+
+The CubeSat demo additionally checks every candidate pose against the actual image's
+projected convex-body boundary. It samples nine locations per hull edge, searches
+±8 pixels for raster/corner localization error, and requires positive contrast at
+at least five locations on **every edge**. Surface interiors or narrow illuminated
+rims may provide support. A dark exterior is an explicit assumption.
+
+An unsupported boundary sets a latched integrity hold: state **lost**, GNC-invalid,
+and `unsupported_boundary` remains the health reason through subsequent missing or
+failed fits. A supported accepted pose releases the hold into acquiring, with a
+0.5 s health window and three accepted poses required before validity. Time alone
+cannot restore validity after one isolated pose. Short integrity interruptions do
+not inflate measurement noise; the existing covariance ramp is reserved for long
+measurement gaps. Boundary rejection never refreshes measurement age.
+
+This is conservative image evidence for the known 3U body, not semantic landmark
+recognition. Shadows, glare, occlusion, and low contrast can reject correct poses.
+Calibration error and ambiguous image structure can still defeat it. Arbitrary
+SPEED+/SHIRT keypoints are not convex body vertices; the generic image benchmark
+does not silently apply this CubeSat-specific verification.
 
 Position/velocity are target-relative quantities in camera coordinates: X right,
 Y down, Z forward. The scalar-first quaternion `(w,x,y,z)` actively rotates target

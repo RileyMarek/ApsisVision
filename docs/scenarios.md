@@ -38,7 +38,7 @@ while GNC-valid, estimate coverage, p95 error, and longest lost interval. Reject
 counts are navigation ticks carrying that reason, not independent camera events.
 Host timings exclude rendering, export, and scheduling guarantees.
 
-## Initial characterization
+## Before boundary verification (`2a3a98c`)
 
 Local release runs, seeds 42–44, 20 seconds per trial, three-second outage at 8 s:
 
@@ -56,9 +56,37 @@ All 21 runs met their declared contract; only 9 met the tracking guards. This sm
 fixed seed set is repeatable characterization, not a statistical reliability claim.
 Changing the model, conditions, or algorithm requires rerunning the suite.
 
-**The GNC-valid flag does not currently guarantee an accurate estimate.** The clutter
+## With boundary verification and integrity hold
+
+Same conditions and seeds, using the image-backed boundary gate and requiring
+three accepted poses after integrity loss. All 21 declared contracts pass; 10 runs
+meet the tracking guards. These are independent columns in the report.
+
+| Scenario | Position RMS range, all estimates | Worst GNC-valid position error | Tracking guards met |
+| --- | --- | --- | --- |
+| Baseline | 1.90–2.68 cm | 6.17 cm | 3/3 |
+| Noise: 12 ADU | 2.58–175.38 cm | 7.21 cm | 2/3 |
+| Occlusion: 35% | No estimate | No valid estimate | 0/3 |
+| False features: 16 | 2.32–5.10 cm | 10.82 cm | 2/3 |
+| Focal bias: +5% | 9.62–17.15 cm | 22.27 cm | 0/3 |
+| Delay: 300 ms | No estimate | No valid estimate | 0/3 |
+| Glare: 3× | 1.77–2.18 cm | 7.52 cm | 3/3 |
+
+In clutter/42, worst GNC-valid error fell from 86.6 to 10.8 cm; valid coverage fell
+from 66.2% to 64.1%. Whole-recording worst error is still 16.46 cm and the tracking
+guard still fails. Baseline/42 retains 2.68 cm RMS and 0.5 s outage recovery, with
+valid coverage falling from 83.6% to 80.5% due to conservative integrity holds.
+
+The noisy seed 43 drifts as far as 3.07 m while invalid/lost and never recovers.
+Those predictions remain in whole-recording RMS instead of being hidden. A previous
+one-tick false-valid result after isolated reacquisition is now covered by a
+regression test: a timer alone cannot certify reacquisition. Calibration seed 43
+still reaches 22.27 cm while valid. The guard assumes a known opaque convex body
+against dark background and is not applied to arbitrary public-dataset keypoints.
+
+**The GNC-valid flag does not guarantee an accurate estimate.** The clutter
 result demonstrates that timestamp and covariance checks can accept a wrong
-correspondence. Next work must strengthen correspondence ambiguity handling and
+correspondence. Further work must strengthen correspondence ambiguity handling and
 independent estimator consistency checks before expanding accuracy claims. Do not
 retune these guards or read scoring truth into navigation to conceal that failure.
 

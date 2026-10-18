@@ -36,9 +36,11 @@ Noise, occlusion, false image features, calibration bias, delivery delay, and gl
 controls rerun the Rust pipeline. The viewer replays the resulting recording;
 it does not invent estimator output in JavaScript.
 
-Choose a failure preset, inspect the health timeline, or step between recorded
-acquisition, outage, and validity changes. Expand the covariance row for all 12
-error-state uncertainties. The console fills the desktop viewport and stacks on mobile.
+Open **Scenario lab** for failure presets, run evidence, and exports. Inspect the
+health timeline or step between recorded acquisition, outage, and validity changes.
+Expand the covariance row for all 12 error-state uncertainties. The three open views
+fill the desktop workspace; controls stay in a drawer.
+Orbital curves, warm light, and an age gauge give the console its instrument style.
 
 ## Repeatable failure tests
 
@@ -50,13 +52,15 @@ python scripts/scenario_suite.py
 Seven scenarios × three seeds produce CSV/JSON reports in `output/suite`.
 The report distinguishes **contract checks** from **tracking accuracy guards**;
 a stress run can obey health rules and still track badly. Current trials expose
-false associations under clutter and acquisition failure under occlusion.
+acquisition failure under occlusion and calibration sensitivity. The new boundary
+guard reduces the seeded clutter false-valid error from 86.6 cm to 10.8 cm;
+this is a regression result, not a reliability guarantee.
 See the [scenario evidence](docs/scenarios.md) for results and limits.
 
 ## Pipeline
 
 ```text
-Shaded camera raster → Harris corners → geometric association → robust PnP
+Shaded camera raster → Harris corners → association → PnP → boundary verification
                     → multiplicative error-state EKF → health + telemetry
 ```
 
@@ -81,7 +85,8 @@ Simulation truth is used for rendering and scoring, never estimator updates.
 - **Simplified environment.** Local prescribed motion, not orbital propagation;
   lighting and camera noise are not radiometrically calibrated.
 - **Explicit failure behavior.** Acquiring, tracking, coasting, and lost states;
-  stale and out-of-order measurements are rejected. Default validity thresholds
+  stale and out-of-order measurements are rejected. Unsupported body boundaries
+  latch an integrity hold; recovery requires repeated accepted poses. Default validity thresholds
   are demo policy, not mission acceptance criteria.
 - **Embedded build portability.** CI cross-builds the core for
   `aarch64-unknown-linux-gnu`, `aarch64-unknown-none`, and
