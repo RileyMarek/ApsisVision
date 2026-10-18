@@ -6,10 +6,24 @@ recorded/live camera integration and AMD Xilinx Zynq UltraScale+ MPSoC deploymen
 
 ## What the demo establishes
 
-The desktop pipeline detects synthetic coded markers, estimates pose, and filters
-motion without reading simulation truth. Regression tests exercise pixel noise,
-missing measurements, duplicate marker IDs, pose outliers, covariance growth, and
-finite exported states. These tests establish a baseline, not mission reliability.
+The desktop pipeline detects grayscale geometric corners from a shaded, depth-tested
+3U CubeSat raster, associates them using a known model and a warm pose prior, fits pose,
+and filters motion without reading simulation truth. The viewer exposes controlled
+image/timing failures and a three-second blackout. Timestamped health, validity,
+rejection reasons, and a conservative reacquisition ramp are implemented.
+
+Regression tests exercise pixel changes, missing measurements, duplicate/late times,
+pose outliers, collinear geometry, cadence-consistent covariance, finite states, and
+truth-isolated benchmark scoring. Host storage/stack evidence and a consumer example
+are available. These establish a baseline, not mission reliability. See
+[demo contract](demo.md), [benchmarking](benchmarking.md), and [embedded evidence](embedded.md).
+
+A shared seven-case suite now records three-seed synthetic failure evidence, with
+separate contract and tracking guards. It exposes an important integrity gap:
+false correspondences can produce large position errors while health remains
+GNC-valid. Occlusion can also prevent acquisition entirely. See the
+[scenario characterization](scenarios.md); resolving these gaps takes priority
+over expanding accuracy or robustness claims.
 
 ## Next gates, in order
 
@@ -38,9 +52,11 @@ AArch64, and bare-metal Armv7E-M. This establishes library build portability, no
 board compatibility, executable linking, measured performance, or flight readiness.
 The Cortex-M target is an independent portability check, not a Zynq target.
 
-No camera dataset is available yet. The next data milestone is a public benchmark
-with calibration and pose ground truth. Dataset-specific adapters and real-image
-features are needed before evaluating the current synthetic marker pipeline on it.
+No official camera dataset has been evaluated yet. A grayscale image detector,
+SPEED-style import adapter, and rectified-PNG benchmark harness now exist. The next
+gate is independent calibration/convention verification and evaluation on a public
+subset. Semantic correspondence and global acquisition remain substantial work;
+the current local Harris/geometry pipeline is not a trained real-satellite detector.
 
 Start with [Stanford SLAB's SPEED+ and SHIRT datasets](https://slab.stanford.edu/projects/datasets):
 SPEED+ provides synthetic and hardware-in-the-loop spacecraft images for evaluating

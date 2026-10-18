@@ -1,0 +1,9 @@
+{
+  "baseline": {"title": "Baseline", "conditions": {}, "contract": "tracking"},
+  "noise": {"title": "Sensor noise", "conditions": {"noise": 12}, "contract": "integrity"},
+  "occlusion": {"title": "Partial occlusion", "conditions": {"occlusion": 0.35}, "contract": "integrity"},
+  "clutter": {"title": "False features", "conditions": {"false_detections": 16}, "contract": "integrity"},
+  "calibration": {"title": "Calibration drift", "conditions": {"calibration_bias": 0.05}, "contract": "integrity"},
+  "delay": {"title": "Stale frames", "conditions": {"delay_ms": 300}, "contract": "reject_stale"},
+  "glare": {"title": "Solar glare", "conditions": {"glare": 3}, "contract": "integrity"}
+}

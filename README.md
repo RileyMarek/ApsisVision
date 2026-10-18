@@ -1,117 +1,115 @@
 # Apsis Vision
 
-**Relative spacecraft navigation, built in Rust.**
+**Relative spacecraft navigation in Rust.**
 
-Apsis explores how camera images can estimate a nearby spacecraft's position,
-orientation, velocity, and rotation rate. The current demo tracks a known synthetic
-target and produces an interactive offline viewer and CSV telemetry.
+Apsis estimates a known target's position, velocity, attitude, and angular rate
+from camera images. Its navigation core is allocation-free and `no_std`.
+The desktop demo makes tracking—and its failures—visible.
 
-This is a research prototype, not flight software. It does not command thrusters or dock a spacecraft.
+Research prototype. No thruster commands, docking autonomy, or flight qualification.
 
 ## Run the demo
 
-Install stable [Rust](https://www.rust-lang.org/tools/install), then:
+With stable [Rust](https://www.rust-lang.org/tools/install) and Python 3.11+:
 
 ```sh
 cargo run --release --locked -p apsis-cli
+python scripts/serve.py
 ```
 
-Open `output/index.html` in your browser. No server, JavaScript packages, GPU, or
-network connection is needed at runtime. Building requires downloading Rust crates.
+Open **[localhost:18765](http://127.0.0.1:18765)**.
+
+On Windows, build natively or in WSL. The Windows server can use the Linux executable
+from the same checkout in `Ubuntu-24.04`; see the [demo guide](docs/demo.md).
+
+The three panes show:
+
+1. A shaded, tumbling **3U CubeSat**, directional sunlight, and specular glare.
+2. Grayscale corner detections, docking-plate bounds, and an estimated 3D wireframe.
+3. Position, angular rate, covariance uncertainty, and navigation health.
+
+Press **Cut camera · 3 s** to recompute a blackout from the current playback time.
+The EKF continues predicting; uncertainty grows; optical updates resume when images
+return. The estimate becomes GNC-invalid after 0.5 s without an accepted measurement.
+
+Noise, occlusion, false image features, calibration bias, delivery delay, and glare
+controls rerun the Rust pipeline. The viewer replays the resulting recording;
+it does not invent estimator output in JavaScript.
+
+Choose a failure preset, inspect the health timeline, or step between recorded
+acquisition, outage, and validity changes. Expand the covariance row for all 12
+error-state uncertainties. The console fills the desktop viewport and stacks on mobile.
+
+## Repeatable failure tests
 
 ```sh
-cargo run --release --locked -p apsis-cli -- --frames 1500 --seed 42 --out output
+cargo build --release --locked -p apsis-cli
+python scripts/scenario_suite.py
 ```
 
-The default run simulates 30 seconds at 50 Hz. Playback shows the target and estimated
-wireframes, detected markers, tracking errors, and projected position uncertainty.
-`output/telemetry.csv` includes truth, estimated position, position and attitude
-errors, position uncertainty, marker counts, accepted updates, and processing time.
-Runs are repeatable for a given seed; wall-clock timings vary by machine.
-Frame count is limited to 1–3000 for the supplied scenario.
+Seven scenarios × three seeds produce CSV/JSON reports in `output/suite`.
+The report distinguishes **contract checks** from **tracking accuracy guards**;
+a stress run can obey health rules and still track badly. Current trials expose
+false associations under clutter and acquisition failure under occlusion.
+See the [scenario evidence](docs/scenarios.md) for results and limits.
 
-## How it works
+## Pipeline
 
 ```text
-Synthetic camera → marker centroids → iterative PnP → error-state EKF → viewer + CSV
+Shaded camera raster → Harris corners → geometric association → robust PnP
+                    → multiplicative error-state EKF → health + telemetry
 ```
 
-Eight markers on a known 3D target encode their identities as grayscale values.
-The renderer adds pixel noise and periodically removes all markers for half a second.
-The vision pipeline detects marker centers from the raster image and solves for pose.
-The filter estimates motion, rejects large innovations, and predicts through missing images.
-Simulation truth is used only for rendering and scoring, never as an estimator measurement.
+The camera runs at a simulated 10 Hz; navigation propagates at 50 Hz.
+The default recording lasts 20 seconds, including an 8–11 s blackout.
+Simulation truth is used for rendering and scoring, never estimator updates.
 
-| Crate | Responsibility |
+| Crate | Purpose |
 | --- | --- |
-| `apsis-core` | `no_std`, allocation-free public navigation entry point |
-| `apsis-math` | Camera projection, target geometry, quaternion pose operations |
-| `apsis-sim` | Local target motion and noisy marker images |
-| `apsis-vision` | Coded marker detection and iterative pose fitting |
-| `apsis-ekf` | Pose, velocity, and angular-rate estimation |
-| `apsis-cli` | Demo runner, offline playback, CSV export |
+| `apsis-core` | Navigation API, timestamps, health, and validity rules |
+| `apsis-math` | Calibrated pinhole projection, geometry, quaternions |
+| `apsis-vision` | Allocation-free corners, correspondence, robust pose fitting |
+| `apsis-ekf` | 13-value nominal state, 12-dimensional error covariance |
+| `apsis-sim` | Desktop image formation and controlled failures |
+| `apsis-cli` | Recording, three-pane viewer, CSV/JSON export |
+| `apsis-bench` | Calibrated image evaluation; truth isolated to scoring |
 
-Coordinates are right-handed camera coordinates: X right, Y down, Z forward.
-Pose maps target-body coordinates into the camera frame; distances are meters,
-time is seconds, and internal angles are radians. Quaternions rotate body to camera.
-The EKF uses a 13-value nominal state and a 12-dimensional multiplicative error state.
+## Evidence and limits
 
-## Scope and limits
+- **Known geometry and a warm start.** Matching uses an approximate pose prior.
+  This is not global acquisition or an unknown-satellite tracker.
+- **Simplified environment.** Local prescribed motion, not orbital propagation;
+  lighting and camera noise are not radiometrically calibrated.
+- **Explicit failure behavior.** Acquiring, tracking, coasting, and lost states;
+  stale and out-of-order measurements are rejected. Default validity thresholds
+  are demo policy, not mission acceptance criteria.
+- **Embedded build portability.** CI cross-builds the core for
+  `aarch64-unknown-linux-gnu`, `aarch64-unknown-none`, and
+  `thumbv7em-none-eabihf`. Board support, hardware timing, and radiation tolerance
+  remain unverified.
 
-- **Known target only.** Marker identity comes from artificial intensity codes.
-  This is not a general feature detector or unknown-satellite tracker.
-- **Local pose solver.** Iterative PnP starts at an assumed 12 m range and identity
-  attitude, then uses the previous prediction. Global acquisition and robust
-  initialization remain future work; this is not EPnP.
-- **Simplified simulation.** Point emitters have no surface occlusion, shadows,
-  glare, lens distortion, or motion blur. Motion is prescribed in camera coordinates,
-  not propagated with orbital dynamics.
-- **Approximate uncertainty.** Measurement noise is tuned and diagonal. Covariance
-  is not derived from the pose fit or calibrated across viewing geometries. The
-  displayed ellipse approximates transverse position uncertainty, omitting depth
-  correlation and attitude uncertainty.
-- **Portable core, desktop demo.** `apsis-core` and its math, vision, and filter
-  dependencies use `no_std`, fixed-size storage, and `libm`. Simulation and playback
-  use `std` and heap allocation. A simulated 50 Hz cadence is not a measured
-  real-time performance guarantee; flight qualification remains separate work.
-
-## Embedded portability
-
-CI builds the `apsis-core` library in isolation for these targets:
-
-| Target | What the build checks |
-| --- | --- |
-| `aarch64-unknown-linux-gnu` | AArch64 Linux library compilation |
-| `aarch64-unknown-none` | Bare-metal AArch64 without `std` |
-| `thumbv7em-none-eabihf` | Bare-metal Armv7E-M with hard-float ABI |
-
-```sh
-rustup target add aarch64-unknown-none
-cargo build --release --locked --no-default-features -p apsis-core --lib --target aarch64-unknown-none
-```
-
-These compile library artifacts; they do not link or run board firmware. The
-Cortex-M target is an additional portability check, not a Zynq processor target.
-Zynq board support, boot/runtime integration, camera drivers, timing, and fault
-tolerance remain untested. No physical board is currently available.
+The [benchmark guide](docs/benchmarking.md) covers SPEED+/SHIRT import and evaluation.
+The [embedded guide](docs/embedded.md) covers the consumer example, storage sizes,
+stack evidence, and timing scope. No public-dataset accuracy result is claimed yet.
 
 ## Development
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+cargo clippy --workspace --all-targets --release --locked -- -D warnings
+cargo test --workspace --release --locked
+python -m pip install -r scripts/requirements-dev.txt
+python -m black --check scripts
+python -m ruff check scripts
+python -m unittest discover -s scripts -p 'test_*.py'
+npm ci
+npm run check
 ```
 
-Tests cover projection, quaternion normalization, image-to-pose recovery,
-outlier rejection, uncertainty growth during dropouts, and full-pipeline tracking
-across three noise seeds. CI runs these checks and uploads the generated demo.
+CI tests tracking, blackouts, timestamp handling, outliers, geometry degeneracy,
+numerical guards, importer conventions, and ground-truth isolation. It uploads
+the demo, seeded scenario report, and embedded evidence. Node is only needed for
+viewer formatting checks. Features and fixes land on `development`;
+merge into `main` after checks and review.
 
-Features and fixes land as focused commits on `development`. Merge into `main`
-after checks pass and the demo is reviewed.
-
-Next: robust failure handling, difficult lighting and occlusion, calibrated
-uncertainty, and recorded/live camera benchmarks. Zynq UltraScale+ MPSoC is the
-intended hardware target; deployment and radiation tolerance are unverified.
-See the [validation roadmap](docs/validation-roadmap.md) for the integration gates.
-Relative guidance comes after navigation has earned its confidence.
+See the [validation roadmap](docs/validation-roadmap.md) for remaining integration gates.

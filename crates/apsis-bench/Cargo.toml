@@ -1,0 +1,11 @@
+[package]
+name = "apsis-bench"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+apsis-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+png.workspace = true
+[dev-dependencies]
+apsis-sim.workspace = true

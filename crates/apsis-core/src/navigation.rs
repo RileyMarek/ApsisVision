@@ -1,0 +1,276 @@
+//! Timestamp and validity contract for a consuming GNC system.
+use crate::{math::Pose, Filter};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State {
+    Acquiring,
+    Tracking,
+    Coasting,
+    Lost,
+}
+impl State {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Acquiring => "acquiring",
+            Self::Tracking => "tracking",
+            Self::Coasting => "coasting",
+            Self::Lost => "lost",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rejection {
+    None,
+    NoImage,
+    Features,
+    Association,
+    PoseFit,
+    Innovation,
+    Stale,
+    OutOfOrder,
+    InvalidTime,
+    Numerical,
+}
+impl Rejection {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::NoImage => "camera_unavailable",
+            Self::Features => "insufficient_features",
+            Self::Association => "insufficient_matches",
+            Self::PoseFit => "pose_fit_failed",
+            Self::Innovation => "innovation_gate",
+            Self::Stale => "stale_measurement",
+            Self::OutOfOrder => "out_of_order",
+            Self::InvalidTime => "invalid_timestamp",
+            Self::Numerical => "numerical_fault",
+        }
+    }
+}
+#[derive(Clone, Copy)]
+pub struct Policy {
+    pub tracking_age_s: f64,
+    pub valid_coast_s: f64,
+    pub lost_after_s: f64,
+    pub max_measurement_age_s: f64,
+    pub max_position_sigma_m: f64,
+}
+impl Default for Policy {
+    fn default() -> Self {
+        Self {
+            tracking_age_s: 0.15,
+            valid_coast_s: 0.5,
+            lost_after_s: 3.5,
+            max_measurement_age_s: 0.025,
+            max_position_sigma_m: 0.5,
+        }
+    }
+}
+pub struct Health {
+    pub state: State,
+    pub valid: bool,
+    pub timestamp_s: f64,
+    pub measurement_age_s: Option<f64>,
+    pub rejection: Rejection,
+}
+pub struct Navigator {
+    pub filter: Option<Filter>,
+    policy: Policy,
+    now: Option<f64>,
+    last_received: Option<f64>,
+    last_accepted: Option<f64>,
+    recovery_until: Option<f64>,
+    accepted: usize,
+    reason: Rejection,
+}
+impl Default for Navigator {
+    fn default() -> Self {
+        Self::new(Policy::default())
+    }
+}
+impl Navigator {
+    pub fn new(policy: Policy) -> Self {
+        assert!(policy.tracking_age_s.is_finite() && policy.tracking_age_s > 0.0);
+        assert!(policy.valid_coast_s.is_finite() && policy.valid_coast_s >= policy.tracking_age_s);
+        assert!(policy.lost_after_s.is_finite() && policy.lost_after_s >= policy.valid_coast_s);
+        assert!(policy.max_measurement_age_s.is_finite() && policy.max_measurement_age_s >= 0.0);
+        assert!(policy.max_position_sigma_m.is_finite() && policy.max_position_sigma_m > 0.0);
+        Self {
+            filter: None,
+            policy,
+            now: None,
+            last_received: None,
+            last_accepted: None,
+            recovery_until: None,
+            accepted: 0,
+            reason: Rejection::None,
+        }
+    }
+    pub fn predict_to(&mut self, timestamp: f64) -> Result<(), Rejection> {
+        if !timestamp.is_finite() || timestamp < 0.0 {
+            return Err(Rejection::InvalidTime);
+        }
+        if let Some(now) = self.now {
+            if timestamp <= now {
+                return Err(Rejection::OutOfOrder);
+            }
+            if let Some(filter) = &mut self.filter {
+                if !filter.predict(timestamp - now) {
+                    self.reason = Rejection::Numerical;
+                    return Err(self.reason);
+                }
+            }
+        }
+        self.now = Some(timestamp);
+        Ok(())
+    }
+    /// Reject lateness beyond the policy tolerance. No historical rewind/replay is performed.
+    pub fn observe(&mut self, captured: f64, pose: Option<&Pose>, missing: Rejection) -> bool {
+        let Some(now) = self.now else {
+            self.reason = Rejection::InvalidTime;
+            return false;
+        };
+        if !captured.is_finite() || captured < 0.0 || captured > now + 1e-9 {
+            self.reason = Rejection::InvalidTime;
+            return false;
+        }
+        if self.last_received.is_some_and(|last| captured <= last) {
+            self.reason = Rejection::OutOfOrder;
+            return false;
+        }
+        self.last_received = Some(captured);
+        if now - captured > self.policy.max_measurement_age_s + 1e-9 {
+            self.reason = Rejection::Stale;
+            return false;
+        }
+        let Some(pose) = pose else {
+            self.reason = missing;
+            return false;
+        };
+        if !pose.position.iter().all(|v| v.is_finite())
+            || !pose.attitude.coords.iter().all(|v| v.is_finite())
+        {
+            self.reason = Rejection::Numerical;
+            return false;
+        }
+        let recovering = self
+            .last_accepted
+            .is_some_and(|t| now - t > self.policy.valid_coast_s);
+        let recovery_until = if recovering {
+            Some(now + 0.5)
+        } else {
+            self.recovery_until
+        };
+        let scale = recovery_until
+            .map(|end| 1.0 + 3.0 * ((end - now) / 0.5).clamp(0.0, 1.0))
+            .unwrap_or(1.0);
+        if let Some(filter) = &mut self.filter {
+            if !filter.update_with_noise_scale(pose, scale) {
+                self.reason = Rejection::Innovation;
+                return false;
+            }
+        } else {
+            self.filter = Some(Filter::new(pose.clone()));
+        }
+        self.last_accepted = Some(captured);
+        self.recovery_until = recovery_until;
+        self.accepted += 1;
+        self.reason = Rejection::None;
+        true
+    }
+    pub fn health(&self) -> Health {
+        let now = self.now.unwrap_or(0.0);
+        let age = self.last_accepted.map(|t| now - t);
+        let bounded = self.filter.as_ref().is_some_and(|f| {
+            (0..3).all(|i| {
+                f.covariance[(i, i)].is_finite()
+                    && f.covariance[(i, i)] >= 0.0
+                    && f.covariance[(i, i)]
+                        <= self.policy.max_position_sigma_m * self.policy.max_position_sigma_m
+            })
+        });
+        let state = match age {
+            None => State::Acquiring,
+            Some(a)
+                if self.reason == Rejection::Numerical
+                    || a > self.policy.lost_after_s
+                    || !bounded =>
+            {
+                State::Lost
+            }
+            Some(_) if self.accepted < 3 => State::Acquiring,
+            Some(_) if self.recovery_until.is_some_and(|end| now < end) => State::Acquiring,
+            Some(a) if a > self.policy.tracking_age_s => State::Coasting,
+            Some(_) => State::Tracking,
+        };
+        Health {
+            state,
+            valid: matches!(state, State::Tracking | State::Coasting)
+                && bounded
+                && age.is_some_and(|a| a <= self.policy.valid_coast_s),
+            timestamp_s: now,
+            measurement_age_s: age,
+            rejection: self.reason,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::math::{Q, V3};
+    fn pose() -> Pose {
+        Pose {
+            position: V3::new(0.0, 0.0, 1.6),
+            attitude: Q::identity(),
+        }
+    }
+    #[test]
+    fn blackout_coasts_invalidates_then_recovers_without_reset() {
+        let mut nav = Navigator::default();
+        assert_eq!(nav.health().state, State::Acquiring);
+        for i in 0..20 {
+            let t = i as f64 * 0.1;
+            nav.predict_to(t).unwrap();
+            assert!(nav.observe(t, Some(&pose()), Rejection::None));
+        }
+        let before = nav.filter.as_ref().unwrap().covariance.trace();
+        nav.predict_to(2.2).unwrap();
+        assert_eq!(nav.health().state, State::Coasting);
+        assert!(nav.health().valid);
+        nav.predict_to(4.9).unwrap();
+        assert_eq!(nav.health().state, State::Coasting);
+        assert!(!nav.health().valid);
+        assert!(nav.filter.as_ref().unwrap().covariance.trace() > before);
+        assert!(nav.observe(4.9, Some(&pose()), Rejection::None));
+        assert_eq!(nav.health().state, State::Acquiring);
+        assert!(!nav.health().valid);
+        nav.predict_to(5.5).unwrap();
+        assert!(nav.observe(5.5, Some(&pose()), Rejection::None));
+        // A fresh gap beyond the valid coasting limit starts another recovery window.
+        nav.predict_to(5.6).unwrap();
+        assert!(nav.observe(5.6, Some(&pose()), Rejection::None));
+        for i in 0..6 {
+            let t = 5.7 + i as f64 * 0.1;
+            nav.predict_to(t).unwrap();
+            nav.observe(t, Some(&pose()), Rejection::None);
+        }
+        assert_eq!(nav.health().state, State::Tracking);
+        nav.predict_to(10.0).unwrap();
+        assert_eq!(nav.health().state, State::Lost);
+    }
+    #[test]
+    fn rejects_stale_duplicate_future_and_nonfinite_timestamps() {
+        let mut nav = Navigator::default();
+        nav.predict_to(1.0).unwrap();
+        assert!(!nav.observe(0.5, Some(&pose()), Rejection::None));
+        assert_eq!(nav.health().rejection, Rejection::Stale);
+        assert!(!nav.observe(0.5, Some(&pose()), Rejection::None));
+        assert_eq!(nav.health().rejection, Rejection::OutOfOrder);
+        assert!(!nav.observe(2.0, Some(&pose()), Rejection::None));
+        assert!(nav.predict_to(f64::NAN).is_err());
+        assert!(nav.predict_to(0.9).is_err());
+        assert_eq!(nav.health().timestamp_s, 1.0);
+        assert!(nav.filter.is_none());
+    }
+}
