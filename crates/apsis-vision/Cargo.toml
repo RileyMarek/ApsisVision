@@ -1,0 +1,8 @@
+[package]
+name = "apsis-vision"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+apsis-math.workspace = true
+[dev-dependencies]
+apsis-sim.workspace = true

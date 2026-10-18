@@ -1,0 +1,14 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+nalgebra = "0.33"
+apsis-math = { path = "crates/apsis-math" }
+apsis-sim = { path = "crates/apsis-sim" }
+apsis-vision = { path = "crates/apsis-vision" }
+apsis-ekf = { path = "crates/apsis-ekf" }
