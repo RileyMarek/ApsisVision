@@ -50,13 +50,15 @@ python scripts/scenario_suite.py
 Seven scenarios × three seeds produce CSV/JSON reports in `output/suite`.
 The report distinguishes **contract checks** from **tracking accuracy guards**;
 a stress run can obey health rules and still track badly. Current trials expose
-false associations under clutter and acquisition failure under occlusion.
+acquisition failure under occlusion and calibration sensitivity. The new boundary
+guard reduces the seeded clutter false-valid error from 86.6 cm to 10.8 cm;
+this is a regression result, not a reliability guarantee.
 See the [scenario evidence](docs/scenarios.md) for results and limits.
 
 ## Pipeline
 
 ```text
-Shaded camera raster → Harris corners → geometric association → robust PnP
+Shaded camera raster → Harris corners → association → PnP → boundary verification
                     → multiplicative error-state EKF → health + telemetry
 ```
 
@@ -81,7 +83,8 @@ Simulation truth is used for rendering and scoring, never estimator updates.
 - **Simplified environment.** Local prescribed motion, not orbital propagation;
   lighting and camera noise are not radiometrically calibrated.
 - **Explicit failure behavior.** Acquiring, tracking, coasting, and lost states;
-  stale and out-of-order measurements are rejected. Default validity thresholds
+  stale and out-of-order measurements are rejected. Unsupported body boundaries
+  latch an integrity hold; recovery requires repeated accepted poses. Default validity thresholds
   are demo policy, not mission acceptance criteria.
 - **Embedded build portability.** CI cross-builds the core for
   `aarch64-unknown-linux-gnu`, `aarch64-unknown-none`, and

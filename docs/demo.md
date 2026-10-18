@@ -66,10 +66,10 @@ Default policy:
 
 | State | Condition | GNC-valid? |
 | --- | --- | --- |
-| Acquiring | No pose yet, fewer than three accepted poses, or 0.5 s reacquisition ramp | No |
+| Acquiring | Fewer than three accepted poses since startup/recovery, or a 0.5 s recovery window | No |
 | Tracking | Last accepted pose age <= 0.15 s, bounded position covariance | Yes |
 | Coasting | Age > 0.15 s and <= 3.5 s, bounded position covariance | Only while age <= 0.5 s |
-| Lost | Age > 3.5 s, numerical fault, or any position sigma > 0.5 m | No |
+| Lost | Integrity hold, age > 3.5 s, numerical fault, or position sigma > 0.5 m | No |
 
 Measurements older than 25 ms at delivery, duplicates, out-of-order capture times,
 future timestamps, nonfinite poses, failed fits, and large innovations are rejected.
@@ -83,6 +83,26 @@ inflated by 4x and returns to baseline over 0.5 s. This weighting affects the re
 filter; there is no cosmetic pose smoothing in the viewer. Optical-return time,
 first optical correction, and time until GNC-valid again are reported separately.
 These tuned choices and covariance limits require mission-specific validation.
+
+The CubeSat demo additionally checks every candidate pose against the actual image's
+projected convex-body boundary. It samples nine locations per hull edge, searches
+±8 pixels for raster/corner localization error, and requires positive contrast at
+at least five locations on **every edge**. Surface interiors or narrow illuminated
+rims may provide support. A dark exterior is an explicit assumption.
+
+An unsupported boundary sets a latched integrity hold: state **lost**, GNC-invalid,
+and `unsupported_boundary` remains the health reason through subsequent missing or
+failed fits. A supported accepted pose releases the hold into acquiring, with a
+0.5 s health window and three accepted poses required before validity. Time alone
+cannot restore validity after one isolated pose. Short integrity interruptions do
+not inflate measurement noise; the existing covariance ramp is reserved for long
+measurement gaps. Boundary rejection never refreshes measurement age.
+
+This is conservative image evidence for the known 3U body, not semantic landmark
+recognition. Shadows, glare, occlusion, and low contrast can reject correct poses.
+Calibration error and ambiguous image structure can still defeat it. Arbitrary
+SPEED+/SHIRT keypoints are not convex body vertices; the generic image benchmark
+does not silently apply this CubeSat-specific verification.
 
 Position/velocity are target-relative quantities in camera coordinates: X right,
 Y down, Z forward. The scalar-first quaternion `(w,x,y,z)` actively rotates target
