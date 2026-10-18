@@ -1,0 +1,29 @@
+name: Rust checks
+on: [push, pull_request]
+jobs:
+  portability:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [aarch64-unknown-linux-gnu, aarch64-unknown-none, thumbv7em-none-eabihf]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --locked --no-default-features -p apsis-core --lib --target ${{ matrix.target }}
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo test --workspace --locked
+      - run: cargo run --release --locked -p apsis-cli -- --frames 1500
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-demo
+          path: output/

@@ -1,0 +1,8 @@
+[package]
+name = "apsis-core"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+apsis-math.workspace = true
+apsis-vision.workspace = true
+apsis-ekf.workspace = true

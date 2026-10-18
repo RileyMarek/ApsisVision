@@ -1,0 +1,6 @@
+[package]
+name = "apsis-sim"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+apsis-math.workspace = true

@@ -1,0 +1,7 @@
+[package]
+name = "apsis-cli"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+apsis-core.workspace = true
+apsis-sim.workspace = true
