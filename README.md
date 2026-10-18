@@ -36,6 +36,23 @@ Noise, occlusion, false image features, calibration bias, delivery delay, and gl
 controls rerun the Rust pipeline. The viewer replays the resulting recording;
 it does not invent estimator output in JavaScript.
 
+Choose a failure preset, inspect the health timeline, or step between recorded
+acquisition, outage, and validity changes. Expand the covariance row for all 12
+error-state uncertainties. The console fills the desktop viewport and stacks on mobile.
+
+## Repeatable failure tests
+
+```sh
+cargo build --release --locked -p apsis-cli
+python scripts/scenario_suite.py
+```
+
+Seven scenarios × three seeds produce CSV/JSON reports in `output/suite`.
+The report distinguishes **contract checks** from **tracking accuracy guards**;
+a stress run can obey health rules and still track badly. Current trials expose
+false associations under clutter and acquisition failure under occlusion.
+See the [scenario evidence](docs/scenarios.md) for results and limits.
+
 ## Pipeline
 
 ```text
@@ -85,11 +102,14 @@ python -m pip install -r scripts/requirements-dev.txt
 python -m black --check scripts
 python -m ruff check scripts
 python -m unittest discover -s scripts -p 'test_*.py'
+npm ci
+npm run check
 ```
 
 CI tests tracking, blackouts, timestamp handling, outliers, geometry degeneracy,
 numerical guards, importer conventions, and ground-truth isolation. It uploads
-the demo and embedded evidence. Features and fixes land on `development`;
+the demo, seeded scenario report, and embedded evidence. Node is only needed for
+viewer formatting checks. Features and fixes land on `development`;
 merge into `main` after checks and review.
 
 See the [validation roadmap](docs/validation-roadmap.md) for remaining integration gates.

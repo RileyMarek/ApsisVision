@@ -18,6 +18,13 @@ truth-isolated benchmark scoring. Host storage/stack evidence and a consumer exa
 are available. These establish a baseline, not mission reliability. See
 [demo contract](demo.md), [benchmarking](benchmarking.md), and [embedded evidence](embedded.md).
 
+A shared seven-case suite now records three-seed synthetic failure evidence, with
+separate contract and tracking guards. It exposes an important integrity gap:
+false correspondences can produce large position errors while health remains
+GNC-valid. Occlusion can also prevent acquisition entirely. See the
+[scenario characterization](scenarios.md); resolving these gaps takes priority
+over expanding accuracy or robustness claims.
+
 ## Next gates, in order
 
 | Gate | Evidence needed before calling it complete |
