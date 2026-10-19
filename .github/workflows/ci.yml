@@ -44,6 +44,7 @@ jobs:
       - run: python -m unittest discover -s scripts -p 'test_*.py'
       - run: cargo test --workspace --release --locked
       - run: cargo run --release --locked -p apsis-cli
+      - run: python scripts/demo_smoke.py
       - run: python scripts/scenario_suite.py --seeds 42 --cases baseline delay occlusion
       - run: cargo run --release --locked -p apsis-core --example consumer
       - run: cargo run --release --locked -p apsis-mission -- --outage --out output/mission-reference
