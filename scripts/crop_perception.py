@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -163,7 +164,18 @@ def dataset(rows, speed, calibration, geometry):
         torch.stack(crops),
         torch.tensor(np.asarray(crop_xy), dtype=torch.float32),
         hashes,
+        (xy[..., 0] >= 0)
+        & (xy[..., 0] < GRID_W)
+        & (xy[..., 1] >= 0)
+        & (xy[..., 1] < GRID_H),
     )
+
+
+def source_visibility(flags, in_source):
+    """A padded ROI cannot make an out-of-FOV landmark observable. Preserve unknowns."""
+    if flags.shape != in_source.shape or in_source.dtype != torch.bool:
+        raise ValueError("Expected source-FOV mask for every visibility flag")
+    return torch.where((flags == 1) & ~in_source, torch.zeros_like(flags), flags)
 
 
 def jitter(images, xy):
@@ -260,20 +272,49 @@ def train(options):
         raise ValueError("Training and development overlap")
     flags, _ = load_supervision(options.labels, a[4], selection["geometry_sha256"])
     dev_flags, _ = load_supervision(options.labels, b[4], selection["geometry_sha256"])
+    excluded = {
+        "training": int(((flags == 1) & ~a[5]).sum()),
+        "development": int(((dev_flags == 1) & ~b[5]).sum()),
+    }
+    flags = source_visibility(flags, a[5])
+    dev_flags = source_visibility(dev_flags, b[5])
     out = options.out
     out.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
-    box = BoxNet()
-    box_history = fit(
-        box,
-        a[0],
-        (a[1],),
-        F.smooth_l1_loss,
-        (b[0], (b[1],)),
-        options.epochs,
-        options.threads,
-        out / "box.pt",
-    )
+    reused_box = None
+    if options.reuse_box is not None:
+        prior = json.loads((options.reuse_box / "training.json").read_text())
+        if (
+            prior["training_hashes"] != a[4]
+            or prior["development_hashes"] != b[4]
+            or prior["geometry_sha256"] != selection["geometry_sha256"]
+        ):
+            raise ValueError(
+                "Box checkpoint was not trained on this exact train/development selection"
+            )
+        reused_box = hashlib.sha256(
+            (options.reuse_box / "box.pt").read_bytes()
+        ).hexdigest()
+        shutil.copyfile(options.reuse_box / "box.pt", out / "box.pt")
+        box = BoxNet()
+        box.load_state_dict(
+            torch.load(out / "box.pt", map_location="cpu", weights_only=True)
+        )
+        box_history = prior["box_history"]
+    else:
+        box = BoxNet()
+        box_history = fit(
+            box,
+            a[0],
+            (a[1],),
+            F.smooth_l1_loss,
+            (b[0], (b[1],)),
+            options.epochs,
+            options.threads,
+            out / "box.pt",
+        )
+    # Keep landmark initialization independent of whether unchanged box training is reused.
+    torch.manual_seed(SEED + 1)
     localizer = VisibilityNet()
     heatmap_history = fit(
         localizer,
@@ -288,6 +329,8 @@ def train(options):
     )
     metadata = {
         "seed": SEED,
+        "localizer_seed": SEED + 1,
+        "reused_box_sha256": reused_box,
         "epochs": options.epochs,
         "training_hashes": a[4],
         "development_hashes": b[4],
@@ -301,6 +344,8 @@ def train(options):
         },
         "elapsed_s": time.perf_counter() - start,
         "training_crops": "Annotation-derived box with padding 1.35 and affine jitter; inference uses BoxNet pixels only",
+        "source_fov_supervision": True,
+        "source_fov_visible_excluded": excluded,
         "thresholds": {
             "local_mass_min": 0.05,
             "visibility_min": 0.5,
@@ -478,8 +523,8 @@ def evaluate(options):
             "".join(
                 json.dumps(
                     {
-                        "captured_s": i * (5 if dataset_name == "shirt" else 0.1),
-                        "delivered_s": i * (5 if dataset_name == "shirt" else 0.1),
+                        "audit_index": i,
+                        "temporal_replay_allowed": False,
                         "pose": None,
                     }
                 )
@@ -492,6 +537,7 @@ def evaluate(options):
         "method": "Image-only learned box -> padded crop -> balanced visibility/local heatmap peak -> unchanged strict PnP",
         "no_pose_prior": True,
         "gnc_output_enabled": False,
+        "temporal_replay_allowed": False,
         "deployment_approved": False,
         "model_sha256": frozen,
         "selection_sha256": hashlib.sha256(
@@ -509,7 +555,9 @@ def development(options):
     torch.set_num_threads(options.threads)
     selection, speed, camera, geometry = context()
     _, rows = split_training(selection["groups"]["speedplus/synthetic/train"])
-    _, _, teacher_crops, crop_xy, hashes = dataset(rows, speed, camera, geometry)
+    _, _, teacher_crops, crop_xy, hashes, source_in_frame = dataset(
+        rows, speed, camera, geometry
+    )
     metadata = json.loads((options.out / "training.json").read_text())
     if (
         hashes != metadata["development_hashes"]
@@ -518,6 +566,7 @@ def development(options):
     ):
         raise ValueError("Development or visibility identities changed")
     flags, _ = load_supervision(options.labels, hashes, selection["geometry_sha256"])
+    flags = source_visibility(flags, source_in_frame)
     perception = Perception(options.out)
     teacher_squared, count, tp, tn, fp, fn = 0.0, 0, 0, 0, 0, 0
     containment, eligible, pnp = [], [], 0
@@ -611,8 +660,11 @@ def overfit(options):
     torch.set_num_threads(options.threads)
     selection, speed, camera, geometry = context()
     rows, _ = split_training(selection["groups"]["speedplus/synthetic/train"])
-    _, _, images, xy, hashes = dataset(rows[:8], speed, camera, geometry)
+    _, _, images, xy, hashes, source_in_frame = dataset(
+        rows[:8], speed, camera, geometry
+    )
     flags, _ = load_supervision(options.labels, hashes, selection["geometry_sha256"])
+    flags = source_visibility(flags, source_in_frame)
     network = VisibilityNet()
     optimizer = torch.optim.AdamW(network.parameters(), lr=0.003, weight_decay=0.0001)
     history = []
@@ -675,6 +727,11 @@ def main():
         "--labels", type=Path, default=ROOT / "output/visibility-proxy/labels.json"
     )
     parser.add_argument("--epochs", type=int, default=60)
+    parser.add_argument(
+        "--reuse-box",
+        type=Path,
+        help="Training-only reuse of a box checkpoint with identical data provenance",
+    )
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument(
         "--steps", type=int, default=400, help="Training-only overfit control steps"

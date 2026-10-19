@@ -22,14 +22,14 @@ def checkpoints(directory):
     }
 
 
-def choose(rows, excluded, count=20):
+def choose(rows, excluded, count=20, seed=20261022):
     available = [r for r in rows if r["filename"] not in excluded]
     if len(available) < count:
         raise ValueError("Insufficient disjoint audit images")
     return sorted(
         available,
         key=lambda r: hashlib.sha256(
-            ("20261022/" + r["filename"]).encode()
+            (str(seed) + "/" + r["filename"]).encode()
         ).hexdigest(),
     )[:count]
 
@@ -39,12 +39,25 @@ def main():
     parser.add_argument(
         "--model-dir", type=Path, default=ROOT / "output/crop-perception"
     )
+    parser.add_argument("--seed", type=int, default=20261022)
+    parser.add_argument("--exclude-selection", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--out", type=Path, default=ROOT / "output/datasets/fresh-selection.json"
+    )
     options = parser.parse_args()
+    if not options.out.resolve().is_relative_to(ROOT / "output"):
+        parser.error("Audit selection output must remain under output/")
     metadata = options.model_dir / "training.json"
     if not metadata.is_file():
         parser.error("Freeze training before selecting fresh audit images")
     frozen = checkpoints(options.model_dir)
     original = json.loads((ROOT / "output/datasets/selection.json").read_text())
+    exclusions = [
+        original,
+        *(json.loads(path.read_text()) for path in options.exclude_selection),
+    ]
+    if any(s["geometry_sha256"] != original["geometry_sha256"] for s in exclusions):
+        raise ValueError("Exclusion selection uses different geometry")
     selections = {}
     for dataset, domain, split in [
         ("speedplus", "synthetic", "validation"),
@@ -63,11 +76,14 @@ def main():
         # Synthetic train and validation can share the same image namespace.
         excluded = {
             r["filename"]
-            for key, rows in original["groups"].items()
+            for selection in exclusions
+            for key, rows in selection["groups"].items()
             if key.startswith(f"{dataset}/{domain}/")
             for r in rows
         }
-        selections[group] = choose(json.loads(labels.read_text()), excluded)
+        selections[group] = choose(
+            json.loads(labels.read_text()), excluded, seed=options.seed
+        )
     provenance = []
     for dataset in ("speedplus", "shirt"):
         remote = RemoteZip(SOURCES[dataset], budget=128 * 1024**2)
@@ -109,14 +125,19 @@ def main():
     if frozen != checkpoints(options.model_dir):
         raise ValueError("Checkpoint changed while selecting audit; freeze it first")
     report = {
-        "seed": 20261022,
+        "seed": options.seed,
+        "excluded_selection_sha256": [
+            hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in options.exclude_selection
+        ],
         "groups": selections,
         "geometry_sha256": original["geometry_sha256"],
         "frozen_model_sha256": frozen,
         "provenance": provenance,
         "limits": "100 disjoint images; SHIRT frames are correlated, not independent trials; no model selection using this audit",
     }
-    destination = ROOT / "output/datasets/fresh-selection.json"
+    destination = options.out.resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(destination, flush=True)
 

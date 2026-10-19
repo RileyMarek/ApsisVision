@@ -2,7 +2,12 @@
 
 import importlib.util
 import inspect
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import cv2 as cv
 import numpy as np
@@ -78,6 +83,70 @@ class ReplayTests(unittest.TestCase):
     importlib.util.find_spec("torch"), "Install requirements-learned.txt"
 )
 class CropTests(unittest.TestCase):
+    def test_plausible_audit_pose_stays_quarantined_without_invented_camera_times(self):
+        import crop_perception as crop
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            out = root / "output/model"
+            out.mkdir(parents=True)
+            base = root / "output/datasets/speedplus/speedplusv2"
+            (base / "lightbox/images").mkdir(parents=True)
+            (base / "lightbox/images/fixture.jpg").write_bytes(b"fixture")
+            (base / "camera.json").write_text("{}")
+            for name in ["box", "localizer"]:
+                (out / (name + ".pt")).write_bytes(b"not loaded")
+            (out / "training.json").write_text(
+                json.dumps(
+                    {
+                        "geometry_sha256": "fixture",
+                        "training_hashes": [],
+                        "development_hashes": [],
+                    }
+                )
+            )
+            (root / "output/datasets/selection.json").write_text("{}")
+            sample = {
+                "filename": "fixture.jpg",
+                "r_Vo2To_vbs_true": [0, 0, 2],
+                "q_vbs2tango_true": [1, 0, 0, 0],
+            }
+            selection = {
+                "geometry_sha256": "fixture",
+                "groups": {"speedplus/lightbox/test": [sample]},
+            }
+            prediction = {"position_m": [0, 0, 2], "quaternion_wxyz": [1, 0, 0, 0]}
+            with patch.object(crop, "ROOT", root), patch.object(
+                crop, "context", return_value=(selection, None, None, np.zeros((11, 3)))
+            ), patch.object(
+                crop,
+                "prepared",
+                return_value=(np.zeros((240, 320), np.uint8), np.eye(3)),
+            ), patch.object(
+                crop, "Perception"
+            ) as factory:
+                factory.return_value.infer.return_value = (
+                    prediction,
+                    {"landmarks": 11},
+                )
+                crop.evaluate(SimpleNamespace(threads=1, out=out, selection=None))
+            packet = json.loads((out / "speedplus-lightbox-test.jsonl").read_text())
+            self.assertIsNone(packet["pose"])
+            self.assertFalse(packet["temporal_replay_allowed"])
+            self.assertNotIn("captured_s", packet)
+            self.assertFalse(
+                json.loads((out / "report.json").read_text())["gnc_output_enabled"]
+            )
+
+    def test_padded_crop_cannot_make_out_of_fov_landmarks_visible(self):
+        import torch
+
+        from crop_perception import source_visibility
+
+        flags = torch.tensor([[1, 1, 0, -1]])
+        in_source = torch.tensor([[True, False, False, False]])
+        self.assertEqual(source_visibility(flags, in_source).tolist(), [[1, 0, 0, -1]])
+
     def test_pixel_center_roundtrip_and_warp_including_outside_image(self):
         from crop_perception import Crop
 
