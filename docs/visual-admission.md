@@ -3,6 +3,9 @@
 **Research status: nominal tracking works; the broad operating envelope and real-image
 perception still fail qualification.** This follows [adaptive covariance](adaptive-perception.md).
 
+The subsequent [cold acquisition experiment](crop-reacquisition.md) verifies main's
+build/server and records image-only crops, replay recovery tests and a fresh real-image audit.
+
 ## Admission before covariance and NIS
 
 The original solvers already enforced 3 px RMS over fitted inliers. The new

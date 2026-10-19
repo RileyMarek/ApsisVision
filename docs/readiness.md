@@ -3,6 +3,8 @@
 This is the baseline experiment at `f1cfa92`. The latest
 [visual-admission and analytic-visibility follow-up](visual-admission.md) records
 paired/independent trials, failed learned hypotheses and selective-INT8 limitations.
+The [2026-10-19 acquisition report](crop-reacquisition.md) adds main build/API verification,
+an image-only crop model, replay fault tests and 100 fresh audit images. Qualification still fails.
 
 Measured 2026-10-18. **The research tools are usable; the proposed operating envelope
 is not validated. A trustworthy real-image rendezvous demo is not ready.**

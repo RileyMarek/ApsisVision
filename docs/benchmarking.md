@@ -1,5 +1,9 @@
 # Image benchmark harness
 
+Latest: [image-only crops and global reacquisition experiments](crop-reacquisition.md).
+The frozen model recovers 0/160 prior-audit and 0/100 fresh-audit poses; all transport
+poses remain null. These diagnostics do not replace the navigation integrity gates.
+
 `apsis-bench` runs the same grayscale Harris detector, prior-guided association,
 robust local PnP, and navigation API on rectified PNGs. Ground truth is accessed only
 after each prediction is fixed. A regression changes truth labels and verifies
