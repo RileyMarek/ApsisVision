@@ -598,7 +598,10 @@ def development(options):
     perception = Perception(options.out)
     teacher_squared, count, tp, tn, fp, fn = 0.0, 0, 0, 0, 0, 0
     containment, eligible, pnp = [], [], 0
+    pose_errors = []
+    localized_frames = 0
     predicted_errors = []
+    landmark_errors = [[] for _ in range(11)]
     with torch.inference_mode():
         for i, sample in enumerate(rows):
             heatmaps, visible = perception.localizer(teacher_crops[i : i + 1])
@@ -625,6 +628,7 @@ def development(options):
                 containment.append(0.0)
                 eligible.append(0)
                 continue
+            localized_frames += 1
             # Derive scoring coordinates after image-only inference has completed.
             from scipy.spatial.transform import Rotation
 
@@ -648,21 +652,52 @@ def development(options):
             ids = localized["ids"]
             eligible.append(len(ids))
             visible_ids = np.flatnonzero(flags[i].numpy() == 1)
-            predicted_errors.extend(
-                np.linalg.norm(
-                    localized["points"][visible_ids] - expected[visible_ids], axis=1
-                ).tolist()
+            errors = np.linalg.norm(
+                localized["points"][visible_ids] - expected[visible_ids], axis=1
             )
-            pnp += (
-                solve_correspondences(geometry[ids], localized["points"][ids], k)
-                is not None
+            predicted_errors.extend(errors.tolist())
+            for identity, error in zip(visible_ids, errors, strict=True):
+                landmark_errors[identity].append(float(error))
+            hypothesis = solve_correspondences(
+                geometry[ids], localized["points"][ids], k
             )
+            if hypothesis is not None:
+                pnp += 1
+                pose_errors.append(score_pose(hypothesis, sample))
     report = {
         "scope": f"{len(rows)} development images; proxy geometry labels; teacher crop metric is diagnostic, not inference performance",
         "images": len(rows),
         "mean_landmark_crop_containment": float(np.mean(containment)),
         "mean_eligible_landmarks": float(np.mean(eligible)),
         "raw_pose_hypotheses": pnp,
+        "image_only_localized_frames": localized_frames,
+        "per_landmark_visible_errors_prepared_px": [
+            {
+                "identity": identity,
+                "observations": len(errors),
+                "median_px": float(np.median(errors)) if errors else None,
+                "p95_px": float(np.percentile(errors, 95)) if errors else None,
+                "within_5px": sum(error <= 5 for error in errors),
+            }
+            for identity, errors in enumerate(landmark_errors)
+        ],
+        "hypotheses_within_15cm_8deg": sum(
+            row["position_error_m"] <= 0.15 and row["attitude_error_deg"] <= 8
+            for row in pose_errors
+        ),
+        "hypothesis_position_rms_m": (
+            float(
+                np.sqrt(np.mean([row["position_error_m"] ** 2 for row in pose_errors]))
+            )
+            if pose_errors
+            else None
+        ),
+        "hypothesis_position_worst_m": max(
+            (row["position_error_m"] for row in pose_errors), default=None
+        ),
+        "hypothesis_attitude_worst_deg": max(
+            (row["attitude_error_deg"] for row in pose_errors), default=None
+        ),
         "teacher_crop_visible_keypoint_rms_256x192_px": (
             float(np.sqrt(teacher_squared / count)) if count else None
         ),
