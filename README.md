@@ -12,7 +12,8 @@ hardware actuation and flight qualification remain outside the evidence.
 **Current gate: not mission-ready.** Hard visual admission and symmetry checks reduce
 false-valid output, but acquisition coverage remains very low across the proposed
 envelope. The analytic-visibility landmark model is still unqualified. See
-[latest acquisition experiments](docs/crop-reacquisition.md),
+[transfer-learning and edge evidence](docs/transfer-perception.md),
+[earlier acquisition experiments](docs/crop-reacquisition.md),
 [visual admission results](docs/visual-admission.md), and [baseline readiness](docs/readiness.md).
 
 ## Run the demo

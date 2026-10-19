@@ -52,6 +52,12 @@ These are library artifacts. No board startup code, firmware linking, device I/O
 WCET proof, power/thermal test, or radiation qualification is supplied. Zynq
 UltraScale+ MPSoC remains an intended deployment target with no available hardware.
 
+Offline GPU training is separate from deployment. The current
+[transfer-learning reference](transfer-perception.md) uses the laptop RTX 3070 for
+training and portable CPU checkpoints for evaluation. Its two ResNet-18 encoders
+are not an approved embedded perception implementation. Host profiling reports
+model storage and CPU latency without extrapolating either to a flight board.
+
 ## Bounded timestamp replay
 
 ```sh
