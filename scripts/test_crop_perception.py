@@ -83,6 +83,100 @@ class ReplayTests(unittest.TestCase):
     importlib.util.find_spec("torch"), "Install requirements-learned.txt"
 )
 class CropTests(unittest.TestCase):
+    def test_enabled_integrity_does_not_fall_back_to_raw_pose_after_rejection(self):
+        import torch
+
+        import crop_perception as crop
+
+        geometry = np.array(
+            [
+                [x, y, z]
+                for z in (-0.15, 0.15)
+                for y in (-0.25, 0.25)
+                for x in (-0.2, 0.2)
+            ]
+        )
+        camera = np.array([[500.0, 0, 320], [0, 500.0, 240], [0, 0, 1]])
+        xyz = geometry + [0.1, 0.05, 3.0]
+        points = xyz[:, :2] / xyz[:, 2:] * 500 + [320, 240]
+        localized = {"box": [0.5, 0.5, 0.3, 0.3], "points": points, "ids": np.arange(8)}
+        instance = crop.Perception.__new__(crop.Perception)
+        instance.crop_extent = 2.0
+        instance.integrity = "off"
+        image = np.zeros((480, 640), np.uint8)
+        with patch.object(instance, "locate", return_value=(localized, "localized")):
+            self.assertIsNotNone(instance.infer(image, camera, geometry)[0])
+            instance.integrity = "roi_stability_v2"
+            with patch.object(
+                crop, "decode", return_value=(np.zeros((8, 2)), np.ones(8))
+            ):
+                instance.localizer = lambda x: (
+                    torch.zeros(2, 11, 48, 64),
+                    torch.full((2, 11), 20.0),
+                )
+                pose, diagnostics = instance.infer(image, camera, geometry)
+            self.assertIsNone(pose)
+            self.assertTrue(diagnostics["raw_hypothesis"])
+            self.assertEqual(
+                diagnostics["reason"], "insufficient_stable_correspondences"
+            )
+
+    def test_unstable_landmark_is_screened_without_using_pose_residuals(self):
+        import torch
+
+        import crop_perception as crop
+        from correspondence_integrity import POLICY
+
+        geometry = np.array(
+            [
+                [x, y, z]
+                for z in (-0.15, 0.15)
+                for y in (-0.25, 0.25)
+                for x in (-0.2, 0.2)
+            ]
+        )
+        camera = np.array([[500.0, 0, 320], [0, 500.0, 240], [0, 0, 1]])
+        xyz = geometry + [0.1, 0.05, 3.0]
+        points = xyz[:, :2] / xyz[:, 2:] * 500 + [320, 240]
+        damaged = points.copy()
+        damaged[0] += [40.0, 0]
+        image = np.zeros((480, 640), np.uint8)
+        box = [0.5, 0.5, 0.3, 0.3]
+        base = crop.Crop.from_box(box, image.shape, max_extent=2.0)
+        outputs = []
+        for scale, dx, dy in POLICY["crop_variants"]:
+            width, height = base.width * scale, base.height * scale
+            variant = crop.Crop(
+                base.x + (0.5 + dx) * base.width - width / 2,
+                base.y + (0.5 + dy) * base.height - height / 2,
+                width,
+                height,
+            )
+            outputs.append((variant.to_grid(points), np.ones(8)))
+        instance = crop.Perception.__new__(crop.Perception)
+        instance.crop_extent = 2.0
+        instance.integrity = "roi_stability_v2"
+        instance.localizer = lambda x: (
+            torch.zeros(2, 11, 48, 64),
+            torch.full((2, 11), 20.0),
+        )
+        with (
+            patch.object(
+                instance,
+                "locate",
+                return_value=(
+                    {"box": box, "points": damaged, "ids": np.arange(8)},
+                    "localized",
+                ),
+            ),
+            patch.object(crop, "decode", side_effect=outputs),
+        ):
+            pose, diagnostics = instance.infer(image, camera, geometry)
+        self.assertIsNotNone(pose)
+        self.assertFalse(diagnostics["raw_hypothesis"])
+        self.assertEqual(diagnostics["landmarks"], 7)
+        self.assertLess(pose["all_correspondence_mean_px"], 1e-5)
+
     def test_plausible_audit_pose_stays_quarantined_without_invented_camera_times(self):
         import crop_perception as crop
 

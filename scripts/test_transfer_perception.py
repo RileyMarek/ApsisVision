@@ -23,6 +23,7 @@ class PoolTests(unittest.TestCase):
                 "learned_perception.py",
                 "transfer_perception.py",
                 "visibility_perception.py",
+                "correspondence_integrity.py",
                 "requirements-learned.txt",
                 "requirements-perception.txt",
             ):

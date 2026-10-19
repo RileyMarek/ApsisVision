@@ -374,6 +374,9 @@ class Perception:
     def __init__(self, directory):
         metadata = json.loads((directory / "training.json").read_text())
         self.crop_extent = metadata.get("crop_max_extent", 1.5)
+        self.integrity = metadata.get("correspondence_integrity", "off")
+        if self.integrity not in ("off", "roi_stability_v2"):
+            raise ValueError("Unsupported correspondence integrity policy")
         if metadata.get("feature_refinement"):
             raise ValueError("Image-corner refinement experiment was rejected")
         if metadata.get("architecture") == "resnet18_fpn":
@@ -430,10 +433,89 @@ class Perception:
             return None, {"reason": reason, "landmarks": 0}
         ids = localized["ids"]
         pose = solve_correspondences(geometry[ids], localized["points"][ids], camera)
+        raw_hypothesis = pose is not None
+        baseline_diagnostics = {"raw_hypothesis": raw_hypothesis, "baseline_pose": pose}
+        integrity = None
+        if self.integrity == "roi_stability_v2":
+            from correspondence_integrity import POLICY, assess
+
+            if len(ids) < POLICY["min_landmarks"]:
+                return None, {
+                    "reason": "insufficient_redundancy",
+                    "landmarks": len(ids),
+                    **baseline_diagnostics,
+                }
+            base = Crop.from_box(
+                localized["box"], image.shape, max_extent=self.crop_extent
+            )
+            crops = []
+            for scale, dx, dy in POLICY["crop_variants"]:
+                width, height = base.width * scale, base.height * scale
+                crops.append(
+                    Crop(
+                        base.x + (0.5 + dx) * base.width - width / 2,
+                        base.y + (0.5 + dy) * base.height - height / 2,
+                        width,
+                        height,
+                    )
+                )
+            with torch.inference_mode():
+                heatmaps, visibility = self.localizer(
+                    torch.stack([image_tensor(crop.image(image)) for crop in crops])
+                )
+            samples = [localized["points"][ids]]
+            stable = np.ones(len(ids), dtype=bool)
+            for index, crop in enumerate(crops):
+                xy, mass = decode(heatmaps[index].numpy(), (GRID_H, GRID_W))
+                stable &= (visibility[index].sigmoid().numpy()[ids] > 0.5) & (
+                    mass[ids] >= 0.05
+                )
+                pixels = crop.to_pixels(xy)[ids]
+                stable &= (
+                    (pixels[:, 0] >= 0)
+                    & (pixels[:, 0] < image.shape[1])
+                    & (pixels[:, 1] >= 0)
+                    & (pixels[:, 1] < image.shape[0])
+                )
+                stable &= (
+                    np.linalg.norm(pixels - samples[0], axis=1)
+                    <= POLICY["max_crop_delta_px"]
+                )
+                samples.append(pixels)
+            # Selection uses image-space repeatability only, never a fitted pose,
+            # reprojection residual, covariance or evaluation annotation.
+            excluded = int((~stable).sum())
+            if stable.sum() < POLICY["min_landmarks"]:
+                return None, {
+                    "reason": "insufficient_stable_correspondences",
+                    "landmarks": int(stable.sum()),
+                    "excluded_unstable_landmarks": excluded,
+                    **baseline_diagnostics,
+                }
+            ids = ids[stable]
+            samples = np.asarray(samples)[:, stable]
+            pose = solve_correspondences(geometry[ids], samples[0], camera)
+            if pose is None:
+                return None, {
+                    "reason": "stable_pnp_rejected",
+                    "landmarks": len(ids),
+                    **baseline_diagnostics,
+                }
+            integrity = assess(geometry[ids], samples, camera, pose)
+            integrity["excluded_unstable_landmarks"] = excluded
+            if not integrity["accepted"]:
+                return None, {
+                    "reason": integrity["reason"],
+                    "landmarks": len(ids),
+                    **baseline_diagnostics,
+                    "integrity": integrity,
+                }
         return pose, {
             "reason": "hypothesis" if pose else "pnp_rejected",
             "landmarks": len(ids),
             "box": localized["box"],
+            "integrity": integrity,
+            **baseline_diagnostics,
         }
 
 
@@ -514,12 +596,28 @@ def evaluate(options):
                     "diagnostics": diagnostics,
                     "vision_us": (time.perf_counter_ns() - start) / 1000,
                     **score_pose(prediction, sample),
+                    "baseline_score": score_pose(
+                        diagnostics.get("baseline_pose", prediction), sample
+                    ),
                 }
             )
         valid = [r for r in rows if r["prediction"] is not None]
+        baseline_valid = [
+            r for r in rows if r["baseline_score"]["position_error_m"] is not None
+        ]
         groups[name] = {
             "frames": len(rows),
             "estimated": len(valid),
+            "baseline_estimated": len(baseline_valid),
+            "baseline_within_15cm_8deg": sum(
+                r["baseline_score"]["position_error_m"] <= 0.15
+                and r["baseline_score"]["attitude_error_deg"] <= 8
+                for r in baseline_valid
+            ),
+            "baseline_position_worst_m": max(
+                (r["baseline_score"]["position_error_m"] for r in baseline_valid),
+                default=None,
+            ),
             "within_15cm_8deg": sum(
                 r["position_error_m"] <= 0.15 and r["attitude_error_deg"] <= 8
                 for r in valid
@@ -575,6 +673,7 @@ def evaluate(options):
         "method": "Image-only learned box -> padded crop -> balanced visibility/local heatmap peak -> unchanged strict PnP",
         "no_pose_prior": True,
         "architecture": metadata.get("architecture", "small_crop_reference"),
+        "correspondence_integrity": metadata.get("correspondence_integrity", "off"),
         "runtime": {
             "torch": torch.__version__,
             "opencv": cv.__version__,
