@@ -7,6 +7,35 @@ from training_pool import select
 
 
 class PoolTests(unittest.TestCase):
+    def test_audit_freeze_binds_configuration_and_inference_code(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        import fresh_audit
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            for name in (
+                "crop_perception.py",
+                "image_perception.py",
+                "learned_perception.py",
+                "transfer_perception.py",
+                "visibility_perception.py",
+                "requirements-learned.txt",
+                "requirements-perception.txt",
+            ):
+                (root / "scripts" / name).write_text("fixture")
+            (root / "training.json").write_text('{"feature_refinement": false}')
+            with patch.object(fresh_audit, "ROOT", root):
+                before = fresh_audit.pipeline_hashes(root)
+                (root / "training.json").write_text('{"feature_refinement": true}')
+                self.assertNotEqual(before, fresh_audit.pipeline_hashes(root))
+                before = fresh_audit.pipeline_hashes(root)
+                (root / "scripts/crop_perception.py").write_text("changed inference")
+                self.assertNotEqual(before, fresh_audit.pipeline_hashes(root))
+
     def test_audit_byte_leak_is_rejected_even_with_a_different_filename(self):
         import hashlib
         import tempfile
@@ -78,6 +107,9 @@ class TransferTests(unittest.TestCase):
             Perception(root)
             (root / "localizer.pt").write_bytes(b"changed checkpoint")
             with self.assertRaisesRegex(ValueError, "frozen training metadata"):
+                Perception(root)
+            (root / "training.json").write_text('{"feature_refinement": true}')
+            with self.assertRaisesRegex(ValueError, "experiment was rejected"):
                 Perception(root)
 
     def test_storage_counts_buffers_and_mixed_tensor_dtypes(self):

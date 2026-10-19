@@ -22,6 +22,26 @@ def checkpoints(directory):
     }
 
 
+def pipeline_hashes(directory):
+    paths = {
+        name: ROOT / "scripts" / name
+        for name in (
+            "crop_perception.py",
+            "image_perception.py",
+            "learned_perception.py",
+            "transfer_perception.py",
+            "visibility_perception.py",
+            "requirements-learned.txt",
+            "requirements-perception.txt",
+        )
+    }
+    paths["training.json"] = directory / "training.json"
+    return {
+        name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in paths.items()
+    }
+
+
 def choose(rows, excluded, count=20, seed=20261022):
     available = [r for r in rows if r["filename"] not in excluded]
     if len(available) < count:
@@ -52,6 +72,7 @@ def main():
         parser.error("Freeze training before selecting fresh audit images")
     training = json.loads(metadata.read_text())
     frozen = checkpoints(options.model_dir)
+    frozen_pipeline = pipeline_hashes(options.model_dir)
     original = json.loads((ROOT / "output/datasets/selection.json").read_text())
     exclusions = [
         original,
@@ -137,6 +158,8 @@ def main():
         print(dataset, len(members), remote.transferred, flush=True)
     if frozen != checkpoints(options.model_dir):
         raise ValueError("Checkpoint changed while selecting audit; freeze it first")
+    if frozen_pipeline != pipeline_hashes(options.model_dir):
+        raise ValueError("Inference pipeline changed while selecting audit")
     excluded_hashes = {
         row["sha256"]
         for selection in exclusions
@@ -164,6 +187,7 @@ def main():
         "groups": selections,
         "geometry_sha256": original["geometry_sha256"],
         "frozen_model_sha256": frozen,
+        "frozen_pipeline_sha256": frozen_pipeline,
         "disjoint_image_hashes_verified": True,
         "provenance": provenance,
         "limits": "100 disjoint images; SHIRT frames are correlated, not independent trials; no model selection using this audit",

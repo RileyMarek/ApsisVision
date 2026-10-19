@@ -132,7 +132,7 @@ class CropTests(unittest.TestCase):
             ):
                 factory.return_value.infer.return_value = (
                     prediction,
-                    {"landmarks": 11},
+                    {"landmarks": 11, "reason": "hypothesis"},
                 )
                 crop.evaluate(SimpleNamespace(threads=1, out=out, selection=None))
             packet = json.loads((out / "speedplus-lightbox-test.jsonl").read_text())

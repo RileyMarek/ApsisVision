@@ -374,6 +374,8 @@ class Perception:
     def __init__(self, directory):
         metadata = json.loads((directory / "training.json").read_text())
         self.crop_extent = metadata.get("crop_max_extent", 1.5)
+        if metadata.get("feature_refinement"):
+            raise ValueError("Image-corner refinement experiment was rejected")
         if metadata.get("architecture") == "resnet18_fpn":
             from transfer_perception import TransferBox, TransferLandmarks
 
@@ -450,6 +452,13 @@ def evaluate(options):
             raise ValueError(
                 "Fresh audit requires the exact preselected frozen checkpoints"
             )
+        if selection.get("frozen_pipeline_sha256"):
+            from fresh_audit import pipeline_hashes
+
+            if selection["frozen_pipeline_sha256"] != pipeline_hashes(options.out):
+                raise ValueError(
+                    "Fresh audit requires the exact frozen inference pipeline"
+                )
         audit_hashes = {
             (source["source"], row["member"]): row["sha256"]
             for source in selection["provenance"]
@@ -525,6 +534,16 @@ def evaluate(options):
                 if valid
                 else None
             ),
+            "position_worst_m": max(
+                (r["position_error_m"] for r in valid), default=None
+            ),
+            "attitude_worst_deg": max(
+                (r["attitude_error_deg"] for r in valid), default=None
+            ),
+            "rejection_reasons": {
+                reason: sum(r["diagnostics"]["reason"] == reason for r in rows)
+                for reason in sorted({r["diagnostics"]["reason"] for r in rows})
+            },
             "vision_p95_us": float(np.percentile([r["vision_us"] for r in rows], 95)),
             "results": rows,
         }
@@ -555,6 +574,12 @@ def evaluate(options):
     report = {
         "method": "Image-only learned box -> padded crop -> balanced visibility/local heatmap peak -> unchanged strict PnP",
         "no_pose_prior": True,
+        "architecture": metadata.get("architecture", "small_crop_reference"),
+        "runtime": {
+            "torch": torch.__version__,
+            "opencv": cv.__version__,
+            "numpy": np.__version__,
+        },
         "gnc_output_enabled": False,
         "temporal_replay_allowed": False,
         "deployment_approved": False,
