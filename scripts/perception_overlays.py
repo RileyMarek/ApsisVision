@@ -1,4 +1,4 @@
-"""Development-only landmark contact sheet; truth appears only after inference."""
+"""Landmark diagnostic contact sheet; truth appears only after inference."""
 
 import argparse
 import hashlib
@@ -23,6 +23,17 @@ def main():
     )
     parser.add_argument("--samples", type=int, default=8)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument(
+        "--domain",
+        default="development",
+        choices=[
+            "development",
+            "speedplus/lightbox/test",
+            "speedplus/sunlamp/test",
+            "shirt/roe1/lightbox",
+            "shirt/roe2/lightbox",
+        ],
+    )
     options = parser.parse_args()
     if (
         not options.model_dir.resolve().is_relative_to(ROOT / "output")
@@ -33,6 +44,7 @@ def main():
     torch.set_num_threads(options.threads)
     metadata = json.loads((options.model_dir / "training.json").read_text())
     selection, speed, calibration, geometry = context()
+    audit_selection = selection
     if metadata.get("training_selection"):
         path = (ROOT / metadata["training_selection"]).resolve()
         if (
@@ -43,15 +55,34 @@ def main():
             raise ValueError("Development-pool provenance changed")
         selection = json.loads(path.read_text())
     _, rows = split_training(selection["groups"]["speedplus/synthetic/train"])
+    folder = speed / "synthetic/images"
+    if options.domain != "development":
+        dataset, domain, split = options.domain.split("/")
+        rows = audit_selection["groups"][options.domain]
+        base = ROOT / "output/datasets" / dataset
+        base = base / "speedplusv2" if dataset == "speedplus" else base
+        calibration = json.loads((base / "camera.json").read_text())
+        folder = (
+            base / domain / "images"
+            if dataset == "speedplus"
+            else base / domain / split / "images"
+        )
     perception = Perception(options.model_dir)
     tiles = []
     for sample in rows[: options.samples]:
-        path = speed / "synthetic/images" / sample["filename"]
+        path = (folder / sample["filename"]).resolve()
+        if not path.is_relative_to(folder.resolve()):
+            raise ValueError("Overlay image escapes its image directory")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if (
-            hashlib.sha256(path.read_bytes()).hexdigest()
-            not in metadata["development_hashes"]
+            options.domain == "development"
+            and digest not in metadata["development_hashes"]
         ):
             raise ValueError("Overlay image is not in the frozen development set")
+        if options.domain != "development" and digest in set(
+            metadata["training_hashes"] + metadata["development_hashes"]
+        ):
+            raise ValueError("Audit overlay overlaps training or model selection")
         image, camera = prepared(path, calibration)
         localized, reason = perception.locate(image)
         # Annotations enter only this diagnostic renderer, after prediction.
@@ -115,7 +146,9 @@ def main():
         )
         tiles.append(np.vstack([label, pair]))
     result = np.vstack(tiles)
-    destination = options.model_dir / "development-overlays.jpg"
+    destination = options.model_dir / (
+        options.domain.replace("/", "-") + "-overlays.jpg"
+    )
     if not cv.imwrite(str(destination), result, [cv.IMWRITE_JPEG_QUALITY, 90]):
         raise OSError("Cannot save development overlay contact sheet")
     print(destination, flush=True)
