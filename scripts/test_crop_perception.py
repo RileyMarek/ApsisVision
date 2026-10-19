@@ -116,15 +116,20 @@ class CropTests(unittest.TestCase):
                 "groups": {"speedplus/lightbox/test": [sample]},
             }
             prediction = {"position_m": [0, 0, 2], "quaternion_wxyz": [1, 0, 0, 0]}
-            with patch.object(crop, "ROOT", root), patch.object(
-                crop, "context", return_value=(selection, None, None, np.zeros((11, 3)))
-            ), patch.object(
-                crop,
-                "prepared",
-                return_value=(np.zeros((240, 320), np.uint8), np.eye(3)),
-            ), patch.object(
-                crop, "Perception"
-            ) as factory:
+            with (
+                patch.object(crop, "ROOT", root),
+                patch.object(
+                    crop,
+                    "context",
+                    return_value=(selection, None, None, np.zeros((11, 3))),
+                ),
+                patch.object(
+                    crop,
+                    "prepared",
+                    return_value=(np.zeros((240, 320), np.uint8), np.eye(3)),
+                ),
+                patch.object(crop, "Perception") as factory,
+            ):
                 factory.return_value.infer.return_value = (
                     prediction,
                     {"landmarks": 11},
