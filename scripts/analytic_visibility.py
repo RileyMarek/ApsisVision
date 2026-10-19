@@ -95,6 +95,9 @@ def proxy_visibility(points, camera_origin_body):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--selection", type=Path, default=ROOT / "output/datasets/selection.json"
+    )
+    parser.add_argument(
         "--out", type=Path, default=ROOT / "output/visibility-proxy/labels.json"
     )
     options = parser.parse_args()
@@ -104,7 +107,7 @@ def main():
     geometry = ROOT / "output/datasets/tangoPoints.mat"
     points = loadmat(geometry)["tango3Dpoints"].T.astype(np.float64)
     normals, offsets = planes(points)
-    selection = json.loads((ROOT / "output/datasets/selection.json").read_text())
+    selection = json.loads(options.selection.read_text())
     digest = hashlib.sha256(geometry.read_bytes()).hexdigest()
     if selection["geometry_sha256"] != digest:
         raise ValueError("Landmark provenance changed")

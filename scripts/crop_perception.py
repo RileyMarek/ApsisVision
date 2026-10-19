@@ -45,13 +45,21 @@ class Crop:
     height: float
 
     @classmethod
-    def from_box(cls, box, shape, padding=1.35):
+    def from_box(cls, box, shape, padding=1.35, max_extent=1.5):
         box = np.asarray(box, dtype=float)
-        if box.shape != (4,) or not np.isfinite(box).all() or padding < 1:
+        if (
+            box.shape != (4,)
+            or not np.isfinite(box).all()
+            or padding < 1
+            or not 1 <= max_extent <= 2
+        ):
             raise ValueError("Expected finite normalized center/size box")
         cx, cy, w, h = box
         if not (
-            0 <= cx <= 1 and 0 <= cy <= 1 and 0.02 <= w <= 1.5 and 0.02 <= h <= 1.5
+            0 <= cx <= 1
+            and 0 <= cy <= 1
+            and 0.02 <= w <= max_extent
+            and 0.02 <= h <= max_extent
         ):
             raise ValueError("Box outside supported image envelope")
         height = max(h * shape[0], w * shape[1] * 0.75, 24) * padding
@@ -141,7 +149,7 @@ def context():
     return selection, speed, calibration, geometry
 
 
-def dataset(rows, speed, calibration, geometry):
+def dataset(rows, speed, calibration, geometry, max_extent=1.5):
     images, xy, hashes = training_data(
         rows, speed / "synthetic/images", calibration, geometry
     )
@@ -152,7 +160,7 @@ def dataset(rows, speed, calibration, geometry):
     crops, crop_xy = [], []
     for row, coordinates, box in zip(rows, normalized, boxes, strict=True):
         image, _ = prepared(speed / "synthetic/images" / row["filename"], calibration)
-        crop = Crop.from_box(box, image.shape)
+        crop = Crop.from_box(box, image.shape, max_extent=max_extent)
         crops.append(image_tensor(crop.image(image)))
         crop_xy.append(
             crop.to_grid(coordinates * [image.shape[1], image.shape[0]] - 0.5)
@@ -364,12 +372,23 @@ class Perception:
     """Stateless global acquisition. An inaccurate/missing pose prior cannot steer it."""
 
     def __init__(self, directory):
-        self.box, self.localizer = BoxNet(), VisibilityNet()
+        metadata = json.loads((directory / "training.json").read_text())
+        self.crop_extent = metadata.get("crop_max_extent", 1.5)
+        if metadata.get("architecture") == "resnet18_fpn":
+            from transfer_perception import TransferBox, TransferLandmarks
+
+            self.box, self.localizer = TransferBox(), TransferLandmarks()
+        else:
+            self.box, self.localizer = BoxNet(), VisibilityNet()
         for network, name in [(self.box, "box"), (self.localizer, "localizer")]:
+            path = directory / (name + ".pt")
+            if metadata.get("checkpoint_sha256") and (
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                != metadata["checkpoint_sha256"][name]
+            ):
+                raise ValueError("Checkpoint differs from frozen training metadata")
             network.load_state_dict(
-                torch.load(
-                    directory / (name + ".pt"), map_location="cpu", weights_only=True
-                )
+                torch.load(path, map_location="cpu", weights_only=True)
             )
             network.eval()
 
@@ -382,7 +401,7 @@ class Perception:
             output = self.box(image_tensor(image)[None])[0].numpy()
             box = np.concatenate([output[:2], np.exp(np.clip(output[2:], -10, 2))])
             try:
-                crop = Crop.from_box(box, image.shape)
+                crop = Crop.from_box(box, image.shape, max_extent=self.crop_extent)
             except ValueError:
                 return None, "box_out_of_envelope"
             heatmaps, visibility = self.localizer(image_tensor(crop.image(image))[None])
@@ -554,11 +573,20 @@ def development(options):
     """Separate box coverage from landmark quality; labels are scoring-only here."""
     torch.set_num_threads(options.threads)
     selection, speed, camera, geometry = context()
+    metadata = json.loads((options.out / "training.json").read_text())
+    if metadata.get("training_selection"):
+        source = (ROOT / metadata["training_selection"]).resolve()
+        if (
+            not source.is_relative_to(ROOT / "output")
+            or hashlib.sha256(source.read_bytes()).hexdigest()
+            != metadata["training_selection_sha256"]
+        ):
+            raise ValueError("Development training-pool provenance changed")
+        selection = json.loads(source.read_text())
     _, rows = split_training(selection["groups"]["speedplus/synthetic/train"])
     _, _, teacher_crops, crop_xy, hashes, source_in_frame = dataset(
-        rows, speed, camera, geometry
+        rows, speed, camera, geometry, max_extent=metadata.get("crop_max_extent", 1.5)
     )
-    metadata = json.loads((options.out / "training.json").read_text())
     if (
         hashes != metadata["development_hashes"]
         or hashlib.sha256(options.labels.read_bytes()).hexdigest()
@@ -606,7 +634,9 @@ def development(options):
                 + sample["r_Vo2To_vbs_true"]
             )
             expected = xyz[:, :2] / xyz[:, 2:] @ k[:2, :2].T + k[:2, 2]
-            roi = Crop.from_box(localized["box"], image.shape)
+            roi = Crop.from_box(
+                localized["box"], image.shape, max_extent=perception.crop_extent
+            )
             grid = roi.to_grid(expected)
             contained = (
                 (grid[:, 0] >= 0)
@@ -628,7 +658,7 @@ def development(options):
                 is not None
             )
     report = {
-        "scope": "100 development images; proxy geometry labels; teacher crop metric is diagnostic, not inference performance",
+        "scope": f"{len(rows)} development images; proxy geometry labels; teacher crop metric is diagnostic, not inference performance",
         "images": len(rows),
         "mean_landmark_crop_containment": float(np.mean(containment)),
         "mean_eligible_landmarks": float(np.mean(eligible)),

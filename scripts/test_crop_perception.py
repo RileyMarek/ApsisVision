@@ -169,6 +169,12 @@ class CropTests(unittest.TestCase):
         for box in [[0.5, 0.5, 0, 0.3], [float("nan"), 0.5, 0.2, 0.2]]:
             with self.assertRaises(ValueError):
                 Crop.from_box(box, image.shape)
+        with self.assertRaises(ValueError):
+            Crop.from_box([0.5, 0.5, 0.5, 1.51], image.shape)
+        partial = Crop.from_box([0.5, 0.5, 0.5, 1.51], image.shape, max_extent=2.0)
+        np.testing.assert_allclose(
+            partial.to_pixels(partial.to_grid(points)), points, atol=1e-12
+        )
 
     def test_balanced_visibility_prevents_all_visible_optimum(self):
         import torch
