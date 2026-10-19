@@ -124,6 +124,22 @@ def main():
         print(dataset, len(members), remote.transferred, flush=True)
     if frozen != checkpoints(options.model_dir):
         raise ValueError("Checkpoint changed while selecting audit; freeze it first")
+    excluded_hashes = {
+        row["sha256"]
+        for selection in exclusions
+        for source in selection.get("provenance", [])
+        for row in source["members"]
+    }
+    for dataset in SOURCES:
+        baseline = json.loads(
+            (ROOT / "output/datasets" / dataset / "subset-provenance.json").read_text()
+        )
+        excluded_hashes.update(row["sha256"] for row in baseline["members"])
+    hashes = [row["sha256"] for source in provenance for row in source["members"]]
+    if len(hashes) != len(set(hashes)) or set(hashes) & excluded_hashes:
+        raise ValueError(
+            "Audit image bytes overlap earlier selections or contain duplicates"
+        )
     report = {
         "seed": options.seed,
         "excluded_selection_sha256": [
@@ -133,6 +149,7 @@ def main():
         "groups": selections,
         "geometry_sha256": original["geometry_sha256"],
         "frozen_model_sha256": frozen,
+        "disjoint_image_hashes_verified": True,
         "provenance": provenance,
         "limits": "100 disjoint images; SHIRT frames are correlated, not independent trials; no model selection using this audit",
     }
