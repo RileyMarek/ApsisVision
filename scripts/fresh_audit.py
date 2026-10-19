@@ -50,12 +50,22 @@ def main():
     metadata = options.model_dir / "training.json"
     if not metadata.is_file():
         parser.error("Freeze training before selecting fresh audit images")
+    training = json.loads(metadata.read_text())
     frozen = checkpoints(options.model_dir)
     original = json.loads((ROOT / "output/datasets/selection.json").read_text())
     exclusions = [
         original,
         *(json.loads(path.read_text()) for path in options.exclude_selection),
     ]
+    if training.get("training_selection"):
+        path = (ROOT / training["training_selection"]).resolve()
+        if (
+            not path.is_relative_to(ROOT / "output")
+            or hashlib.sha256(path.read_bytes()).hexdigest()
+            != training["training_selection_sha256"]
+        ):
+            raise ValueError("Training-pool provenance changed")
+        exclusions.append(json.loads(path.read_text()))
     if any(s["geometry_sha256"] != original["geometry_sha256"] for s in exclusions):
         raise ValueError("Exclusion selection uses different geometry")
     selections = {}
@@ -101,7 +111,10 @@ def main():
                 requests.extend(folder + row["filename"] for row in rows)
 
         def fetch(name):
-            path = ROOT / "output/datasets" / dataset / name
+            folder = ROOT / "output/datasets" / dataset
+            path = (folder / name).resolve()
+            if not path.is_relative_to(folder.resolve()):
+                raise ValueError("Audit image path escapes its dataset directory")
             entry = entries[name]
             if not path.exists():
                 data = remote.member(entry)
@@ -130,6 +143,8 @@ def main():
         for source in selection.get("provenance", [])
         for row in source["members"]
     }
+    excluded_hashes.update(training["training_hashes"])
+    excluded_hashes.update(training["development_hashes"])
     for dataset in SOURCES:
         baseline = json.loads(
             (ROOT / "output/datasets" / dataset / "subset-provenance.json").read_text()

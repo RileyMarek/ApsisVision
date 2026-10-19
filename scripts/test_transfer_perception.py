@@ -7,6 +7,30 @@ from training_pool import select
 
 
 class PoolTests(unittest.TestCase):
+    def test_audit_byte_leak_is_rejected_even_with_a_different_filename(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        import training_pool
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            folder = root / "output/datasets/speedplus/speedplusv2/lightbox/images"
+            folder.mkdir(parents=True)
+            image = folder / "different-name.jpg"
+            image.write_bytes(b"same image bytes")
+            selection = {
+                "groups": {"speedplus/lightbox/test": [{"filename": image.name}]}
+            }
+            members = [{"sha256": hashlib.sha256(image.read_bytes()).hexdigest()}]
+            with patch.object(training_pool, "ROOT", root):
+                with self.assertRaisesRegex(ValueError, "overlap an audit"):
+                    training_pool.verify_audit_separation(members, [selection])
+                image.write_bytes(b"disjoint bytes")
+                training_pool.verify_audit_separation(members, [selection])
+
     def test_expansion_preserves_existing_and_excludes_audits_independent_of_truth(
         self,
     ):
@@ -23,6 +47,8 @@ class PoolTests(unittest.TestCase):
             select(rows, ["0"], {"0"}, 20, 42)
         with self.assertRaises(ValueError):
             select(rows + rows, ["0"], set(), 20, 42)
+        with self.assertRaises(ValueError):
+            select(rows, ["0", "0"], set(), 20, 42)
 
 
 @unittest.skipUnless(

@@ -15,6 +15,7 @@ def select(rows, existing, excluded, count, seed):
     index = {row["filename"]: row for row in rows}
     if (
         len(index) != len(rows)
+        or len(existing) != len(set(existing))
         or not set(existing) <= index.keys()
         or set(existing) & excluded
     ):
@@ -105,7 +106,10 @@ def main():
     def fetch(sample):
         name = prefix + sample["filename"]
         entry = entries[name]
-        path = ROOT / "output/datasets/speedplus" / name
+        folder = ROOT / "output/datasets/speedplus/speedplusv2/synthetic/images"
+        path = (ROOT / "output/datasets/speedplus" / name).resolve()
+        if not path.is_relative_to(folder.resolve()):
+            raise ValueError("Training image path escapes its image directory")
         if not path.exists():
             data = remote.member(entry)
             path.parent.mkdir(parents=True, exist_ok=True)
