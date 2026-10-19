@@ -37,6 +37,11 @@ def pipeline_hashes(directory):
         )
     }
     paths["training.json"] = directory / "training.json"
+    paths["speedplus-camera.json"] = (
+        ROOT / "output/datasets/speedplus/speedplusv2/camera.json"
+    )
+    paths["shirt-camera.json"] = ROOT / "output/datasets/shirt/camera.json"
+    paths["tangoPoints.mat"] = ROOT / "output/datasets/tangoPoints.mat"
     return {
         name: hashlib.sha256(path.read_bytes()).hexdigest()
         for name, path in paths.items()

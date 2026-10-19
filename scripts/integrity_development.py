@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import shutil
 import time
 from collections import Counter
 from pathlib import Path
@@ -17,10 +18,39 @@ from image_perception import prepared, score_pose
 from learned_perception import split_training
 
 
+def prepare_integrity(parent, destination):
+    if not parent.resolve().is_relative_to(
+        ROOT / "output"
+    ) or not destination.resolve().is_relative_to(ROOT / "output"):
+        raise ValueError("Experiments must remain under output/")
+    path = parent / "training.json"
+    metadata = json.loads(path.read_text())
+    if metadata.get("correspondence_integrity", "off") != "off":
+        raise ValueError("Select an ungated parent experiment")
+    for name in ("box", "localizer"):
+        if (
+            hashlib.sha256((parent / (name + ".pt")).read_bytes()).hexdigest()
+            != metadata["checkpoint_sha256"][name]
+        ):
+            raise ValueError("Parent checkpoint changed")
+    destination.mkdir(parents=True, exist_ok=False)
+    for name in ("box.pt", "localizer.pt"):
+        shutil.copy2(parent / name, destination / name)
+    metadata.update(
+        correspondence_integrity=POLICY["version"],
+        integrity_parent=parent.resolve().relative_to(ROOT).as_posix(),
+        integrity_parent_metadata_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
+    (destination / "training.json").write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-dir", type=Path, required=True)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--initialize-from", type=Path)
     options = parser.parse_args()
     if (
         not options.model_dir.resolve().is_relative_to(ROOT / "output")
@@ -28,6 +58,8 @@ def main():
     ):
         parser.error("Model must be under output/; threads 1..8")
     torch.set_num_threads(options.threads)
+    if options.initialize_from:
+        prepare_integrity(options.initialize_from, options.model_dir)
     metadata = json.loads((options.model_dir / "training.json").read_text())
     selection, speed, calibration, geometry = context()
     if metadata.get("training_selection"):

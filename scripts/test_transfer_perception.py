@@ -29,9 +29,22 @@ class PoolTests(unittest.TestCase):
             ):
                 (root / "scripts" / name).write_text("fixture")
             (root / "training.json").write_text('{"feature_refinement": false}')
+            for name in (
+                "speedplus/speedplusv2/camera.json",
+                "shirt/camera.json",
+                "tangoPoints.mat",
+            ):
+                path = root / "output/datasets" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture calibration or geometry")
             with patch.object(fresh_audit, "ROOT", root):
                 before = fresh_audit.pipeline_hashes(root)
                 (root / "training.json").write_text('{"feature_refinement": true}')
+                self.assertNotEqual(before, fresh_audit.pipeline_hashes(root))
+                before = fresh_audit.pipeline_hashes(root)
+                (root / "output/datasets/shirt/camera.json").write_text(
+                    "changed calibration"
+                )
                 self.assertNotEqual(before, fresh_audit.pipeline_hashes(root))
                 before = fresh_audit.pipeline_hashes(root)
                 (root / "scripts/crop_perception.py").write_text("changed inference")
@@ -85,6 +98,42 @@ class PoolTests(unittest.TestCase):
     importlib.util.find_spec("torchvision"), "Install requirements-learned.txt"
 )
 class TransferTests(unittest.TestCase):
+    def test_integrity_clone_verifies_parent_and_preserves_original(self):
+        import hashlib
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        import integrity_development
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "output/parent"
+            parent.mkdir(parents=True)
+            hashes = {}
+            for name in ("box", "localizer"):
+                path = parent / (name + ".pt")
+                path.write_bytes(name.encode())
+                hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            path = parent / "training.json"
+            path.write_text(json.dumps({"checkpoint_sha256": hashes}))
+            original = path.read_bytes()
+            with patch.object(integrity_development, "ROOT", root):
+                destination = root / "output/gated"
+                integrity_development.prepare_integrity(parent, destination)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(
+                    json.loads((destination / "training.json").read_text())[
+                        "correspondence_integrity"
+                    ],
+                    "roi_stability_v2",
+                )
+                (parent / "box.pt").write_bytes(b"changed")
+                with self.assertRaisesRegex(ValueError, "Parent checkpoint changed"):
+                    integrity_development.prepare_integrity(parent, root / "output/bad")
+                self.assertFalse((root / "output/bad").exists())
+
     def test_inference_rejects_weights_changed_after_freezing(self):
         import hashlib
         import json
