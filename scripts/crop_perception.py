@@ -20,7 +20,7 @@ from scipy.io import loadmat
 from torch import nn
 from torch.nn import functional as F
 
-from fetch_benchmark import ROOT
+from fetch_benchmark import ROOT, SOURCES
 from image_perception import prepared, score_pose, solve_correspondences
 from learned_perception import (
     GRID_H,
@@ -379,12 +379,18 @@ def evaluate(options):
         n: hashlib.sha256((options.out / (n + ".pt")).read_bytes()).hexdigest()
         for n in ("box", "localizer")
     }
+    audit_hashes = {}
     if options.selection is not None:
         selection = json.loads(options.selection.read_text())
         if selection.get("frozen_model_sha256") != frozen:
             raise ValueError(
                 "Fresh audit requires the exact preselected frozen checkpoints"
             )
+        audit_hashes = {
+            (source["source"], row["member"]): row["sha256"]
+            for source in selection["provenance"]
+            for row in source["members"]
+        }
     if metadata["geometry_sha256"] != selection["geometry_sha256"]:
         raise ValueError("Geometry provenance changed")
     used = set(metadata["training_hashes"] + metadata["development_hashes"])
@@ -406,6 +412,21 @@ def evaluate(options):
         for sample in samples:
             path = folder / sample["filename"]
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if (
+                options.selection
+                and audit_hashes.get(
+                    (
+                        SOURCES[dataset_name],
+                        path.relative_to(
+                            ROOT / "output/datasets" / dataset_name
+                        ).as_posix(),
+                    )
+                )
+                != digest
+            ):
+                raise ValueError(
+                    "Audit image no longer matches verified archive provenance"
+                )
             if digest in used:
                 raise ValueError("Audit image overlaps training or model selection")
             image, k = prepared(path, camera)
@@ -583,15 +604,81 @@ def development(options):
     print(json.dumps(report, indent=2), flush=True)
 
 
+def overfit(options):
+    """Eight TRAINING images only; no checkpoint writes or audit model selection."""
+    torch.manual_seed(SEED)
+    torch.use_deterministic_algorithms(True)
+    torch.set_num_threads(options.threads)
+    selection, speed, camera, geometry = context()
+    rows, _ = split_training(selection["groups"]["speedplus/synthetic/train"])
+    _, _, images, xy, hashes = dataset(rows[:8], speed, camera, geometry)
+    flags, _ = load_supervision(options.labels, hashes, selection["geometry_sha256"])
+    network = VisibilityNet()
+    optimizer = torch.optim.AdamW(network.parameters(), lr=0.003, weight_decay=0.0001)
+    history = []
+    start = time.perf_counter()
+    for step in range(options.steps):
+        network.train()
+        optimizer.zero_grad()
+        loss = balanced_loss(network(images), xy, flags)
+        loss.backward()
+        nn.utils.clip_grad_norm_(network.parameters(), 5.0)
+        optimizer.step()
+        if step % 50 == 0 or step == options.steps - 1:
+            history.append({"step": step + 1, "loss": float(loss.detach())})
+            print("overfit", history[-1], flush=True)
+    network.eval()
+    with torch.inference_mode():
+        heatmaps, visibility = network(images)
+        predicted = np.stack(
+            [decode(value.numpy(), (GRID_H, GRID_W))[0] for value in heatmaps]
+        )
+        target = flags.numpy() == 1
+        errors = np.linalg.norm((predicted - xy.numpy()) * 4, axis=-1)[target]
+        known = flags >= 0
+        classification = visibility.sigmoid() > 0.5
+        correct = classification == (flags == 1)
+    report = {
+        "scope": "Eight deterministic training images, annotation-derived crops, no augmentation, random initialization; NOT generalization or image-only acquisition",
+        "training_hashes": hashes,
+        "steps": options.steps,
+        "history": history,
+        "visible_keypoint_rms_crop_input_px": float(np.sqrt(np.mean(errors**2))),
+        "visible_keypoint_pck5": float(np.mean(errors <= 5)),
+        "visibility_accuracy": float(correct[known].float().mean()),
+        "elapsed_s": time.perf_counter() - start,
+        "audit_checkpoints_modified": False,
+        "deployment_approved": False,
+    }
+    options.out.mkdir(parents=True, exist_ok=True)
+    (options.out / "overfit-control.json").write_text(
+        json.dumps(report, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                k: v
+                for k, v in report.items()
+                if k not in ("training_hashes", "history")
+            },
+            indent=2,
+        ),
+        flush=True,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["train", "development", "evaluate"])
+    parser.add_argument("mode", choices=["train", "development", "evaluate", "overfit"])
     parser.add_argument("--out", type=Path, default=ROOT / "output/crop-perception")
     parser.add_argument(
         "--labels", type=Path, default=ROOT / "output/visibility-proxy/labels.json"
     )
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument(
+        "--steps", type=int, default=400, help="Training-only overfit control steps"
+    )
     parser.add_argument(
         "--selection",
         type=Path,
@@ -605,11 +692,17 @@ def main():
         not options.out.is_relative_to(ROOT / "output")
         or not 1 <= options.epochs <= 100
         or not 1 <= options.threads <= 8
+        or not 1 <= options.steps <= 1000
     ):
-        parser.error("Output must be under output/; epochs 1..100, threads 1..8")
-    {"train": train, "development": development, "evaluate": evaluate}[options.mode](
-        options
-    )
+        parser.error(
+            "Output must be under output/; epochs 1..100, threads 1..8, steps 1..1000"
+        )
+    {
+        "train": train,
+        "development": development,
+        "evaluate": evaluate,
+        "overfit": overfit,
+    }[options.mode](options)
 
 
 if __name__ == "__main__":
