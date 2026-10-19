@@ -13,6 +13,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+import cv2 as cv
 import numpy as np
 import torch
 import truststore
@@ -117,12 +118,17 @@ def pretrained(destination):
 
 
 def fit(network, inputs, labels, development, options, path, localizer):
+    from appearance import sensor_appearance
+
     device = torch.device(options.device)
     network.to(device)
     encoder = list(network.encoder.parameters())
     heads = [p for n, p in network.named_parameters() if not n.startswith("encoder.")]
     optimizer = torch.optim.AdamW(
-        [{"params": encoder, "lr": 0.0001}, {"params": heads, "lr": 0.001}],
+        [
+            {"params": encoder, "lr": 0.0001 * (0.3 if options.initialize else 1)},
+            {"params": heads, "lr": 0.001 * (0.3 if options.initialize else 1)},
+        ],
         weight_decay=0.0001,
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -145,40 +151,57 @@ def fit(network, inputs, labels, development, options, path, localizer):
                 target = (xy, target[1])
             image = image.to(device)
             target = tuple(t.to(device) for t in target)
-            gamma = 0.6 + torch.rand(len(ids), 1, 1, 1, device=device) * 0.8
-            image = (
-                image.pow(gamma)
-                * (0.7 + torch.rand(len(ids), 1, 1, 1, device=device) * 0.6)
-                + torch.randn_like(image) * 0.01
-            ).clamp(0, 1)
+            if options.appearance == "sensor":
+                image, target = sensor_appearance(image, target, localizer)
+            else:
+                gamma = 0.6 + torch.rand(len(ids), 1, 1, 1, device=device) * 0.8
+                image = (
+                    image.pow(gamma)
+                    * (0.7 + torch.rand(len(ids), 1, 1, 1, device=device) * 0.6)
+                    + torch.randn_like(image) * 0.01
+                ).clamp(0, 1)
             optimizer.zero_grad(set_to_none=True)
             loss = criterion(network(image), *target)
             if not torch.isfinite(loss):
                 raise ValueError("Nonfinite training loss")
             loss.backward()
-            nn.utils.clip_grad_norm_(network.parameters(), 5.0)
+            nn.utils.clip_grad_norm_(network.parameters(), 5.0, error_if_nonfinite=True)
             optimizer.step()
             total += float(loss.detach()) * len(ids)
         scheduler.step()
         network.eval()
         dev_x, dev_y = development
         with torch.inference_mode():
-            dev = sum(
-                float(
-                    criterion(
-                        network(dev_x[i : i + options.batch].to(device)),
-                        *(v[i : i + options.batch].to(device) for v in dev_y),
+            clean_loss, sensor_loss = 0.0, 0.0
+            for i in range(0, len(dev_x), options.batch):
+                image = dev_x[i : i + options.batch].to(device)
+                target = tuple(v[i : i + options.batch].to(device) for v in dev_y)
+                clean_loss += float(criterion(network(image), *target)) * len(image)
+                if options.appearance == "sensor":
+                    generator = torch.Generator(device=device).manual_seed(
+                        SEED + 100 + i
                     )
-                )
-                * len(dev_x[i : i + options.batch])
-                for i in range(0, len(dev_x), options.batch)
-            ) / len(dev_x)
+                    altered, altered_target = sensor_appearance(
+                        image, target, localizer, generator
+                    )
+                    sensor_loss += float(
+                        criterion(network(altered), *altered_target)
+                    ) * len(image)
+            clean_loss /= len(dev_x)
+            sensor_loss = (
+                sensor_loss / len(dev_x)
+                if options.appearance == "sensor"
+                else clean_loss
+            )
+            dev = (clean_loss + sensor_loss) / 2
         if not np.isfinite(dev):
             raise ValueError("Nonfinite development loss")
         row = {
             "epoch": epoch + 1,
             "training_loss": total / len(inputs),
             "development_loss": dev,
+            "development_clean_loss": clean_loss,
+            "development_sensor_loss": sensor_loss,
             "elapsed_s": time.perf_counter() - start,
         }
         history.append(row)
@@ -201,6 +224,7 @@ def train(options):
         raise ValueError("Frozen experiment already exists; use a new output directory")
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.set_num_threads(options.threads)
+    cv.setNumThreads(1)
     torch.manual_seed(SEED)
     torch.use_deterministic_algorithms(True)
     torch.backends.cudnn.benchmark = False
@@ -220,6 +244,10 @@ def train(options):
         raise ValueError("Training geometry changed")
     rows = selection["groups"]["speedplus/synthetic/train"]
     training, development = split_training(rows)
+    print(
+        f"Preparing {len(training)} training and {len(development)} development images",
+        flush=True,
+    )
     a = dataset(training, speed, camera, geometry, max_extent=2.0)
     b = dataset(development, speed, camera, geometry, max_extent=2.0)
     if set(a[4]) & set(b[4]):
@@ -238,15 +266,56 @@ def train(options):
     flags = source_visibility(flags, a[5])
     dev_flags = source_visibility(dev_flags, b[5])
     options.out.mkdir(parents=True, exist_ok=True)
-    weights, url, digest = pretrained(options.out / "pretrained")
+    initialization = None
+    if options.initialize:
+        parent = json.loads((options.initialize / "training.json").read_text())
+        if (
+            parent.get("architecture") != "resnet18_fpn"
+            or parent["training_hashes"] != a[4]
+            or parent["development_hashes"] != b[4]
+            or parent["visibility_sha256"]
+            != hashlib.sha256(options.labels.read_bytes()).hexdigest()
+            or parent["geometry_sha256"] != selection["geometry_sha256"]
+        ):
+            raise ValueError(
+                "Warm start must use the same verified geometry, supervision and train/development split"
+            )
+        initialization = {
+            "parent": options.initialize.resolve().relative_to(ROOT).as_posix(),
+            "metadata_sha256": hashlib.sha256(
+                (options.initialize / "training.json").read_bytes()
+            ).hexdigest(),
+            "checkpoint_sha256": parent["checkpoint_sha256"],
+        }
+        weights, url, digest = (
+            None,
+            parent["pretrained"]["source"],
+            parent["pretrained"]["sha256"],
+        )
+    else:
+        weights, url, digest = pretrained(options.out / "pretrained")
+
+    def initialize(network, name):
+        if options.initialize:
+            path = options.initialize / (name + ".pt")
+            if (
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                != initialization["checkpoint_sha256"][name]
+            ):
+                raise ValueError("Warm-start checkpoint changed")
+            network.load_state_dict(
+                torch.load(path, map_location="cpu", weights_only=True)
+            )
+        return network
+
     start = time.perf_counter()
-    box = TransferBox(weights)
+    box = initialize(TransferBox(weights), "box")
     box_history, box_peak = fit(
         box, a[0], (a[1],), (b[0], (b[1],)), options, options.out / "box.pt", False
     )
     del box
     torch.manual_seed(SEED + 1)
-    localizer = TransferLandmarks(weights)
+    localizer = initialize(TransferLandmarks(weights), "localizer")
     localizer_history, localizer_peak = fit(
         localizer,
         a[2],
@@ -258,6 +327,16 @@ def train(options):
     )
     metadata = {
         "architecture": "resnet18_fpn",
+        "initialization": initialization,
+        "appearance_policy": options.appearance,
+        "appearance_source_sha256": hashlib.sha256(
+            (ROOT / "scripts/appearance.py").read_bytes()
+        ).hexdigest(),
+        "checkpoint_selection": (
+            "mean of clean and fixed-seed randomized synthetic development loss"
+            if options.appearance == "sensor"
+            else "clean development loss"
+        ),
         "checkpoint_sha256": {
             name: hashlib.sha256(
                 (options.out / (name + ".pt")).read_bytes()
@@ -324,6 +403,10 @@ def main():
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
+    parser.add_argument(
+        "--appearance", choices=["baseline", "sensor"], default="baseline"
+    )
+    parser.add_argument("--initialize", type=Path)
     options = parser.parse_args()
     if (
         not options.out.resolve().is_relative_to(ROOT / "output")
@@ -331,6 +414,10 @@ def main():
         or not 1 <= options.epochs <= 100
         or not 1 <= options.threads <= 8
         or not 2 <= options.batch <= 32
+        or (
+            options.initialize
+            and not options.initialize.resolve().is_relative_to(ROOT / "output")
+        )
     ):
         parser.error(
             "Output must remain under output/; epochs 1..100, threads 1..8, batch 2..32"
