@@ -12,10 +12,10 @@ hardware actuation and flight qualification remain outside the evidence.
 **Current gate: not mission-ready.** Hard visual admission and symmetry checks reduce
 false-valid output, but acquisition coverage remains very low across the proposed
 envelope. The learned perception pipeline remains unqualified. See
-[appearance and integrity experiments](docs/appearance-integrity.md),
-[transfer-learning and edge evidence](docs/transfer-perception.md),
-[earlier acquisition experiments](docs/crop-reacquisition.md),
-[visual admission results](docs/visual-admission.md), and [baseline readiness](docs/readiness.md).
+[latest acquisition and integrity results](docs/crop-consistency.md).
+Paired-crop training improves synthetic development coverage but still recovers
+0/80 real-image poses on the newest untouched audit. Experimental poses remain
+quarantined; the demo below uses the separate synthetic navigation pipeline.
 
 ## Run the demo
 
