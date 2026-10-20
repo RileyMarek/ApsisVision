@@ -186,7 +186,7 @@ def source_visibility(flags, in_source):
     return torch.where((flags == 1) & ~in_source, torch.zeros_like(flags), flags)
 
 
-def jitter(images, xy):
+def jitter(images, xy, return_transform=False):
     """Training-only affine crop jitter with corresponding label transformation."""
     scale = torch.rand(len(images), 1) * 0.3 + 0.85
     offset = (torch.rand(len(images), 2) - 0.5) * 0.16
@@ -199,6 +199,8 @@ def jitter(images, xy):
     normal = (xy + 0.5) / torch.tensor([GRID_W, GRID_H]) * 2 - 1
     normal = (normal - offset[:, None]) / scale[:, None]
     coordinates = (normal + 1) * torch.tensor([GRID_W, GRID_H]) / 2 - 0.5
+    if return_transform:
+        return changed, coordinates, (scale, offset)
     return changed, coordinates
 
 

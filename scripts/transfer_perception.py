@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import ssl
 import time
 import urllib.request
@@ -119,6 +120,7 @@ def pretrained(destination):
 
 def fit(network, inputs, labels, development, options, path, localizer):
     from appearance import sensor_appearance
+    from crop_consistency import equivariance_loss
 
     device = torch.device(options.device)
     network.to(device)
@@ -142,11 +144,24 @@ def fit(network, inputs, labels, development, options, path, localizer):
     for epoch in range(options.epochs):
         network.train()
         total = 0.0
+        consistency_total = 0.0
         start = time.perf_counter()
         for ids in torch.randperm(len(inputs)).split(options.batch):
             image = inputs[ids].clone()
             target = tuple(t[ids].clone() for t in labels)
-            if localizer:
+            paired = localizer and getattr(options, "consistency_weight", 0) > 0
+            if paired:
+                image_a, xy_a, transform_a = jitter(
+                    image, target[0], return_transform=True
+                )
+                image_b, xy_b, transform_b = jitter(
+                    image, target[0], return_transform=True
+                )
+                image = torch.cat([image_a, image_b])
+                target = (torch.cat([xy_a, xy_b]), torch.cat([target[1], target[1]]))
+                transform_a = tuple(t.to(device) for t in transform_a)
+                transform_b = tuple(t.to(device) for t in transform_b)
+            elif localizer:
                 image, xy = jitter(image, target[0])
                 target = (xy, target[1])
             image = image.to(device)
@@ -154,14 +169,27 @@ def fit(network, inputs, labels, development, options, path, localizer):
             if options.appearance == "sensor":
                 image, target = sensor_appearance(image, target, localizer)
             else:
-                gamma = 0.6 + torch.rand(len(ids), 1, 1, 1, device=device) * 0.8
+                gamma = 0.6 + torch.rand(len(image), 1, 1, 1, device=device) * 0.8
                 image = (
                     image.pow(gamma)
-                    * (0.7 + torch.rand(len(ids), 1, 1, 1, device=device) * 0.6)
+                    * (0.7 + torch.rand(len(image), 1, 1, 1, device=device) * 0.6)
                     + torch.randn_like(image) * 0.01
                 ).clamp(0, 1)
             optimizer.zero_grad(set_to_none=True)
-            loss = criterion(network(image), *target)
+            output = network(image)
+            loss = criterion(output, *target)
+            if paired:
+                n = len(ids)
+                consistency = equivariance_loss(
+                    output[0][:n],
+                    output[0][n:],
+                    transform_a,
+                    transform_b,
+                    tuple(t[:n] for t in target),
+                    tuple(t[n:] for t in target),
+                )
+                loss = loss + options.consistency_weight * consistency
+                consistency_total += float(consistency.detach()) * n
             if not torch.isfinite(loss):
                 raise ValueError("Nonfinite training loss")
             loss.backward()
@@ -199,6 +227,7 @@ def fit(network, inputs, labels, development, options, path, localizer):
         row = {
             "epoch": epoch + 1,
             "training_loss": total / len(inputs),
+            "training_consistency_loss": consistency_total / len(inputs),
             "development_loss": dev,
             "development_clean_loss": clean_loss,
             "development_sensor_loss": sensor_loss,
@@ -310,9 +339,13 @@ def train(options):
 
     start = time.perf_counter()
     box = initialize(TransferBox(weights), "box")
-    box_history, box_peak = fit(
-        box, a[0], (a[1],), (b[0], (b[1],)), options, options.out / "box.pt", False
-    )
+    if options.reuse_initial_box:
+        shutil.copy2(options.initialize / "box.pt", options.out / "box.pt")
+        box_history, box_peak = [], None
+    else:
+        box_history, box_peak = fit(
+            box, a[0], (a[1],), (b[0], (b[1],)), options, options.out / "box.pt", False
+        )
     del box
     torch.manual_seed(SEED + 1)
     localizer = initialize(TransferLandmarks(weights), "localizer")
@@ -329,6 +362,13 @@ def train(options):
         "architecture": "resnet18_fpn",
         "initialization": initialization,
         "appearance_policy": options.appearance,
+        "consistency_weight": options.consistency_weight,
+        "consistency_source_sha256": hashlib.sha256(
+            (ROOT / "scripts/crop_consistency.py").read_bytes()
+        ).hexdigest(),
+        "box_reused": options.reuse_initial_box,
+        "localizer_network_batch": options.batch
+        * (2 if options.consistency_weight > 0 else 1),
         "appearance_source_sha256": hashlib.sha256(
             (ROOT / "scripts/appearance.py").read_bytes()
         ).hexdigest(),
@@ -407,6 +447,8 @@ def main():
         "--appearance", choices=["baseline", "sensor"], default="baseline"
     )
     parser.add_argument("--initialize", type=Path)
+    parser.add_argument("--reuse-initial-box", action="store_true")
+    parser.add_argument("--consistency-weight", type=float, default=0.0)
     options = parser.parse_args()
     if (
         not options.out.resolve().is_relative_to(ROOT / "output")
@@ -418,6 +460,8 @@ def main():
             options.initialize
             and not options.initialize.resolve().is_relative_to(ROOT / "output")
         )
+        or (options.reuse_initial_box and not options.initialize)
+        or not 0 <= options.consistency_weight <= 1
     ):
         parser.error(
             "Output must remain under output/; epochs 1..100, threads 1..8, batch 2..32"
