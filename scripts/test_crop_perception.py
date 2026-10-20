@@ -106,6 +106,12 @@ class CropTests(unittest.TestCase):
         image = np.zeros((480, 640), np.uint8)
         with patch.object(instance, "locate", return_value=(localized, "localized")):
             self.assertIsNotNone(instance.infer(image, camera, geometry)[0])
+            instance.integrity = "geometry_sensitivity_v1"
+            instance.localizer = lambda x: self.fail("Geometry gate ran another CNN")
+            prediction, diagnostics = instance.infer(image, camera, geometry)
+            self.assertIsNotNone(prediction)
+            self.assertFalse(diagnostics["integrity"]["crop_probes"])
+            self.assertEqual(diagnostics["integrity"]["fit_count"], 8)
             instance.integrity = "roi_stability_v2"
             with patch.object(
                 crop, "decode", return_value=(np.zeros((8, 2)), np.ones(8))

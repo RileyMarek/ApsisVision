@@ -20,16 +20,34 @@ POLICY = {
 }
 
 
-def assess(geometry, samples, camera, baseline):
+def policy_for(mode):
+    if mode not in ("roi_stability_v2", "geometry_sensitivity_v1"):
+        raise ValueError("Unsupported integrity policy")
+    return {
+        **POLICY,
+        "version": mode,
+        "crop_variants": POLICY["crop_variants"] if mode == "roi_stability_v2" else [],
+        "max_crop_delta_px": (
+            POLICY["max_crop_delta_px"] if mode == "roi_stability_v2" else None
+        ),
+    }
+
+
+def assess(geometry, samples, camera, baseline, probe_crops=True):
     geometry, samples, camera = (
         np.asarray(x, dtype=float) for x in (geometry, samples, camera)
     )
-    report = {"accepted": False, "reason": "malformed_correspondences", "fit_count": 0}
+    report = {
+        "accepted": False,
+        "reason": "malformed_correspondences",
+        "fit_count": 0,
+        "crop_probes": probe_crops,
+    }
     if (
         geometry.ndim != 2
         or geometry.shape[1] != 3
         or not 7 <= len(geometry) <= 11
-        or samples.shape != (3, len(geometry), 2)
+        or samples.shape != (3 if probe_crops else 1, len(geometry), 2)
         or camera.shape != (3, 3)
         or not all(np.isfinite(x).all() for x in (geometry, samples, camera))
         or camera[0, 0] <= 0
@@ -58,10 +76,11 @@ def assess(geometry, samples, camera, baseline):
         np.fill_diagonal(separation, np.inf)
         if separation.min() < POLICY["min_point_separation_px"]:
             return {**report, "reason": "coincident_image_points"}
-    delta = float(np.linalg.norm(samples[1:] - samples[0], axis=2).max())
-    report["max_crop_delta_px"] = delta
-    if delta > POLICY["max_crop_delta_px"]:
-        return {**report, "reason": "crop_correspondence_unstable"}
+    if probe_crops:
+        delta = float(np.linalg.norm(samples[1:] - samples[0], axis=2).max())
+        report["max_crop_delta_px"] = delta
+        if delta > POLICY["max_crop_delta_px"]:
+            return {**report, "reason": "crop_correspondence_unstable"}
     # The caller supplies an already admitted baseline. Every extra fit retains
     # the existing 3 px inlier RMS and all-correspondence mean gates.
     fits = [solve_correspondences(geometry, points, camera) for points in samples[1:]]

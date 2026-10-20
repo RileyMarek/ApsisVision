@@ -377,7 +377,7 @@ class Perception:
         metadata = json.loads((directory / "training.json").read_text())
         self.crop_extent = metadata.get("crop_max_extent", 1.5)
         self.integrity = metadata.get("correspondence_integrity", "off")
-        if self.integrity not in ("off", "roi_stability_v2"):
+        if self.integrity not in ("off", "roi_stability_v2", "geometry_sensitivity_v1"):
             raise ValueError("Unsupported correspondence integrity policy")
         if metadata.get("feature_refinement"):
             raise ValueError("Image-corner refinement experiment was rejected")
@@ -438,6 +438,23 @@ class Perception:
         raw_hypothesis = pose is not None
         baseline_diagnostics = {"raw_hypothesis": raw_hypothesis, "baseline_pose": pose}
         integrity = None
+        if self.integrity == "geometry_sensitivity_v1" and pose is not None:
+            from correspondence_integrity import assess
+
+            integrity = assess(
+                geometry[ids],
+                [localized["points"][ids]],
+                camera,
+                pose,
+                probe_crops=False,
+            )
+            if not integrity["accepted"]:
+                return None, {
+                    "reason": integrity["reason"],
+                    "landmarks": len(ids),
+                    **baseline_diagnostics,
+                    "integrity": integrity,
+                }
         if self.integrity == "roi_stability_v2":
             from correspondence_integrity import POLICY, assess
 

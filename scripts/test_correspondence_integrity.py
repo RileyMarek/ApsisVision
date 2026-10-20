@@ -30,6 +30,11 @@ class IntegrityTests(unittest.TestCase):
         result = assess(self.geometry, [pixels] * 3, self.camera, pose)
         self.assertTrue(result["accepted"])
         self.assertEqual(result["fit_count"], 10)
+        single = assess(self.geometry, [pixels], self.camera, pose, probe_crops=False)
+        self.assertTrue(single["accepted"])
+        self.assertEqual(single["fit_count"], 8)
+        self.assertFalse(single["crop_probes"])
+        self.assertNotIn("max_crop_delta_px", single)
 
     def test_displaced_identity_and_duplicate_identity_fail(self):
         pixels = self.project([0.1, 0.05, 3.0])

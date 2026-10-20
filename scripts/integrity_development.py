@@ -11,14 +11,15 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from correspondence_integrity import POLICY
+from correspondence_integrity import policy_for
 from crop_perception import Perception, context
 from fetch_benchmark import ROOT
 from image_perception import prepared, score_pose
 from learned_perception import split_training
 
 
-def prepare_integrity(parent, destination):
+def prepare_integrity(parent, destination, policy="roi_stability_v2"):
+    policy_for(policy)
     if not parent.resolve().is_relative_to(
         ROOT / "output"
     ) or not destination.resolve().is_relative_to(ROOT / "output"):
@@ -37,7 +38,7 @@ def prepare_integrity(parent, destination):
     for name in ("box.pt", "localizer.pt"):
         shutil.copy2(parent / name, destination / name)
     metadata.update(
-        correspondence_integrity=POLICY["version"],
+        correspondence_integrity=policy,
         integrity_parent=parent.resolve().relative_to(ROOT).as_posix(),
         integrity_parent_metadata_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
     )
@@ -51,6 +52,11 @@ def main():
     parser.add_argument("--model-dir", type=Path, required=True)
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--initialize-from", type=Path)
+    parser.add_argument(
+        "--policy",
+        choices=["roi_stability_v2", "geometry_sensitivity_v1"],
+        default="roi_stability_v2",
+    )
     options = parser.parse_args()
     if (
         not options.model_dir.resolve().is_relative_to(ROOT / "output")
@@ -59,7 +65,7 @@ def main():
         parser.error("Model must be under output/; threads 1..8")
     torch.set_num_threads(options.threads)
     if options.initialize_from:
-        prepare_integrity(options.initialize_from, options.model_dir)
+        prepare_integrity(options.initialize_from, options.model_dir, options.policy)
     metadata = json.loads((options.model_dir / "training.json").read_text())
     selection, speed, calibration, geometry = context()
     if metadata.get("training_selection"):
@@ -107,7 +113,9 @@ def main():
     ]
     report = {
         "scope": "Development diagnostic; same-image repeatability is not correctness or calibrated uncertainty",
-        "policy": POLICY if perception.integrity != "off" else "off",
+        "policy": (
+            policy_for(perception.integrity) if perception.integrity != "off" else "off"
+        ),
         "frames": len(rows),
         "raw_hypotheses": sum(
             r["diagnostics"].get("raw_hypothesis", r["estimated"]) for r in rows
